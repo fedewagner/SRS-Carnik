@@ -1,0 +1,57 @@
+schema: spec-driven
+context: |
+  Producto: Carnik — convierte el WhatsApp de una carnicería PyME suiza en un
+  canal de pedidos atendido por AI, donde cada pedido se propone contra el stock
+  real y ninguno llega al mostrador sin que una persona lo haya confirmado.
+
+  Flujo E2E prioritario: un cliente escribe su pedido en lenguaje natural al
+  WhatsApp de la carnicería, el sistema ingiere el mensaje, lo interpreta con AI
+  contra el catálogo y el stock vigente y genera una propuesta de pedido en
+  borrador con los precios recalculados en el servidor, notifica al empleado en
+  el backoffice, que revisa las líneas, ajusta cantidades y —si hace falta—
+  responde al cliente por el mismo chat antes de confirmar, momento en el que el
+  pedido pasa a confirmado, el stock se descuenta en la misma transacción, el
+  cliente recibe el resumen por WhatsApp y el pedido aparece en la pantalla del
+  local para su armado.
+
+  Usuario objetivo:
+    - Primario, el dueño de la carnicería: quien tiene el dolor, quien decide y
+      quien pagaría. PyME suiza de 2 a 6 empleados, que hoy recibe pedidos por
+      WhatsApp en su teléfono personal, los anota a mano y los pierde entre la
+      atención al mostrador. Su problema no es la falta de canal digital —ya lo
+      tiene, es WhatsApp— sino que ese canal le interrumpe el trabajo y no está
+      conectado con su stock.
+    - Operativo, el empleado de mostrador u obrador: quien más horas pasa dentro
+      del sistema. Restricción de diseño dura: manos ocupadas, a veces con
+      guantes, de pie, con un cliente esperando enfrente. Todo lo que hace en el
+      backoffice tiene que resolverse en pocos toques y sin lectura densa. Es la
+      razón por la que la confirmación es un botón y no un formulario.
+    - Final, el cliente del barrio: rango amplio de edad y de alfabetización
+      digital, y por eso mismo no se le pide nada: ni instalar, ni registrarse,
+      ni aprender. Escribe como le escribiría a una persona. Es usuario del
+      canal, no del producto: no ve ninguna pantalla nuestra.
+
+  Stack: Next.js 15 (App Router), Prisma, PostgreSQL, Railway
+  Equipo: una persona, ~22 horas netas de implementación total
+  Entrega: proyecto final AI4Devs. El entregable es readme.md siguiendo la
+  plantilla AI4Devs-finalproject (secciones §0 a §7).
+rules:
+  proposal:
+    - Indica siempre el impacto visible para el usuario
+    - Declara explícitamente qué queda fuera de alcance
+  specs:
+    - Escenarios en Given/When/Then
+    - Cada Requirement necesita al menos un escenario de error y uno de borde
+    - Todo Requirement que maneje datos personales declara quién puede leerlos
+      y quién puede modificarlos
+    - Usa nombres de entidad consistentes en todos los specs
+  design:
+    - Cada decisión técnica con su trade-off explícito
+    - No propongas microservicios, colas ni caché distribuida sin justificar
+      que son imprescindibles para el flujo E2E en 22 horas
+    - Nombra las tablas Prisma y las rutas de API concretas afectadas
+    - Toda entrada de usuario se valida en servidor; indica dónde
+    - "Ningún secreto en el código: declara las variables de entorno necesarias"
+  tasks:
+    - Tareas pequeñas, implementables en menos de 90 minutos
+    - Cada tarea indica los archivos concretos que toca
