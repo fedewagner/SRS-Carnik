@@ -12,6 +12,8 @@ Responde automáticamente a preguntas simples del cliente sobre disponibilidad y
 
 El sistema SHALL reconocer los mensajes entrantes que son una consulta sobre disponibilidad o precio de un producto y no una intención de pedido, y SHALL responder con la información del catálogo sin crear un `Order`.
 
+El filtro previo de intención de `ai-order-intake` SHALL ejecutarse también sin esta capacidad; esta capacidad añade únicamente la respuesta para `CATALOG_QUERY`.
+
 La respuesta SHALL construirse a partir de los datos del `Product` en la base de datos, nunca a partir de texto generado libremente sobre precios o cantidades.
 
 **Datos personales:** la respuesta SHALL contener únicamente datos de `Product`. SHALL NOT revelar pedidos, historiales, ni información de otros clientes, aunque el mensaje entrante los mencione.
@@ -42,5 +44,5 @@ La respuesta SHALL construirse a partir de los datos del `Product` en la base de
 
 - **GIVEN** un mensaje cuya intención el sistema no puede determinar con confianza
 - **WHEN** se procesa
-- **THEN** el sistema no responde automáticamente
+- **THEN** el sistema no responde automáticamente ni crea un `Order`
 - **AND** el mensaje queda en la `Conversation` para atención humana

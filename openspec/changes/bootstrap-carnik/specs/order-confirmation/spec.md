@@ -72,7 +72,7 @@ El sistema SHALL señalar de forma visible la existencia de pedidos en borrador 
 
 El sistema SHALL permitir a un usuario con rol `EMPLOYEE` o `ADMIN` modificar la cantidad de un `OrderItem`, eliminar líneas y añadir líneas de productos del catálogo, **mientras el `Order` esté en estado borrador**.
 
-Toda edición SHALL validarse en el servidor y SHALL recalcular los importes contra el catálogo. Un `Order` que no esté en borrador SHALL NOT admitir edición de líneas.
+Toda edición SHALL validarse en el servidor según unidad y precisión del `Product` y SHALL recalcular importes con el snapshot y redondeo por línea de D3. Cambiar sólo la cantidad conserva `unitPriceCents`; añadir, sustituir o resolver un producto captura su precio vigente. Las ediciones y la confirmación SHALL tomar el mismo bloqueo de `Order` antes de comprobar su estado. Un `Order` que no esté en borrador SHALL NOT admitir edición de líneas.
 
 #### Scenario: Ajuste de una cantidad
 
@@ -97,11 +97,11 @@ Toda edición SHALL validarse en el servidor y SHALL recalcular los importes con
 
 ### Requirement: Corrección de existencias desde la línea del pedido
 
-El sistema SHALL permitir a un usuario con rol `EMPLOYEE` o `ADMIN` corregir la cantidad disponible de un `Product` desde la línea del pedido en la que detecta la discrepancia, sin abandonar el detalle.
+El sistema SHALL permitir a un usuario con rol `EMPLOYEE` o `ADMIN` corregir la cantidad disponible de un `Product` **activo** desde la línea del pedido en la que detecta la discrepancia, sin abandonar el detalle.
 
-El sistema SHALL distinguir productos vendidos por peso, que admiten cantidades fraccionarias, de productos vendidos por pieza, que SHALL admitir únicamente cantidades enteras. La cantidad disponible SHALL NOT poder quedar por debajo de cero.
+El sistema SHALL distinguir productos vendidos por peso, que admiten cantidades fraccionarias, de productos vendidos por pieza, que SHALL admitir únicamente cantidades enteras. La cantidad disponible SHALL NOT poder quedar por debajo de cero ni exceder tres decimales para peso. El servidor SHALL verificar rol, unidad y `Product.isActive=true` en la operación que realiza el ajuste.
 
-*Nota de alcance:* este es el único punto de escritura de existencias del sistema. No hay pantalla de gestión de catálogo; los productos se siembran.
+*Nota de alcance:* este es el único punto de corrección manual de existencias del sistema, además del descuento transaccional al confirmar. No hay pantalla de gestión de catálogo; los productos se siembran.
 
 #### Scenario: El empleado corrige lo que hay en la cámara
 
@@ -113,8 +113,8 @@ El sistema SHALL distinguir productos vendidos por peso, que admiten cantidades 
 #### Scenario: Cantidad no válida para la unidad del producto (error)
 
 - **GIVEN** un producto vendido por pieza
-- **WHEN** se intenta fijar una cantidad disponible de 2,5 unidades, o un valor negativo
-- **THEN** el sistema rechaza el ajuste en el servidor indicando la unidad esperada
+- **WHEN** se intenta fijar una cantidad disponible de 2,5 unidades, un valor negativo, o ajustar un producto inactivo
+- **THEN** el sistema rechaza el ajuste en el servidor indicando la unidad esperada o que el producto está inactivo
 - **AND** la cantidad anterior se conserva
 
 #### Scenario: Producto agotado (borde)
@@ -128,7 +128,11 @@ El sistema SHALL distinguir productos vendidos por peso, que admiten cantidades 
 
 El sistema SHALL permitir a un usuario con rol `EMPLOYEE` o `ADMIN` confirmar un `Order` en borrador. La confirmación SHALL ejecutarse como una **única operación atómica** que cambia el estado del `Order` a confirmado, descuenta la cantidad de cada `OrderItem` de la cantidad disponible del `Product` correspondiente, y deja registrado en el propio `Order` qué usuario confirmó y en qué momento.
 
-La suficiencia de existencias SHALL comprobarse **en el momento de confirmar**, no cuando se generó el borrador. Si cualquier parte de la operación falla, ninguna SHALL persistir. La confirmación SHALL ser idempotente respecto de un mismo `Order`.
+Antes de cambiar `Order.status`, la transacción SHALL exigir al menos un `OrderItem` y verificar que todas las líneas estén `RESOLVED`, tengan referencia no nula a un `Product` existente y cantidad/unidad válidas. Un pedido vacío SHALL devolver `409 EMPTY_ORDER`; líneas sin resolver, referencias ausentes o cantidades/unidades inválidas SHALL devolver `409 UNRESOLVED_ORDER_ITEMS` con `orderItemIds`, sin cambiar estado, existencias ni auditoría.
+
+La suficiencia de existencias SHALL comprobarse **en el momento de confirmar**, no cuando se generó el borrador. La misma transacción SHALL persistir un resumen inmutable como `Message` saliente `PENDING` con `summaryOrderId` único (outbox), usando los snapshots y totales enteros de D3. Si cualquier escritura de estado, stock, auditoría u outbox falla, ninguna SHALL persistir. La confirmación SHALL ser idempotente respecto de un mismo `Order`.
+
+El envío externo SHALL ejecutarse después del commit mediante ese outbox y SHALL NOT formar parte de la atomicidad de la base. Un fallo del proveedor SHALL conservar el pedido confirmado, el stock descontado y el resumen pendiente o fallido. La entrega SHALL usar la clave estable `order-summary:<orderId>` y un claim atómico que evite emisores concurrentes. Reintentos SHALL reutilizar la misma fila y cuerpo; `SENT` SHALL NOT reenviarse. Ante entrega incierta (`UNKNOWN` o `SENDING` abandonado), SHALL reconciliarse antes de reintentar; sin deduplicación o confirmación del proveedor SHALL NOT repetirse a ciegas. Un reintento de confirmación SHALL devolver el resultado persistido sin despachar otro resumen.
 
 #### Scenario: Confirmación correcta
 
@@ -137,7 +141,8 @@ La suficiencia de existencias SHALL comprobarse **en el momento de confirmar**, 
 - **THEN** el `Order` pasa a estado confirmado
 - **AND** la cantidad disponible de "Entrecot" se reduce en 1,5 kg
 - **AND** el `Order` queda con el usuario que confirmó y el momento de la confirmación
-- **AND** se dispara el mensaje de resumen al cliente
+- **AND** se persiste el outbox del resumen en la misma transacción
+- **AND** sólo después del commit se intenta enviarlo al cliente
 
 #### Scenario: Existencias insuficientes en el momento de confirmar (error)
 
@@ -147,6 +152,36 @@ La suficiencia de existencias SHALL comprobarse **en el momento de confirmar**, 
 - **AND** el `Order` permanece en borrador
 - **AND** ningún `Product` ve modificada su cantidad disponible
 - **AND** no se envía ningún mensaje al cliente
+
+#### Scenario: Pedido sin líneas (error)
+
+- **GIVEN** un `Order` en borrador sin ningún `OrderItem`
+- **WHEN** se solicita la confirmación directamente a la API
+- **THEN** responde `409 EMPTY_ORDER` antes de cambiar el estado
+- **AND** no cambia stock ni auditoría ni crea resumen
+
+#### Scenario: Línea sin resolver o producto ausente (error)
+
+- **GIVEN** un borrador con líneas válidas y una línea `UNRESOLVED`, `productId=null` o cuya referencia no resuelve a un `Product`
+- **WHEN** se solicita la confirmación
+- **THEN** responde `409 UNRESOLVED_ORDER_ITEMS` con los identificadores afectados
+- **AND** todo el pedido queda en borrador, sin descontar ninguna línea ni crear resumen
+
+#### Scenario: Falla el proveedor después del commit (error)
+
+- **GIVEN** estado, existencias, auditoría y outbox confirmados en la base
+- **WHEN** el proveedor rechaza el envío o vence el timeout
+- **THEN** el pedido sigue confirmado y el stock descontado
+- **AND** el outbox queda `FAILED` para rechazo sin entrega o `UNKNOWN` para resultado ambiguo
+- **AND** un reintento de entrega elegible reutiliza fila, cuerpo y clave sin repetir la confirmación
+
+#### Scenario: Caída después del commit o durante el envío (borde)
+
+- **GIVEN** un outbox persistido y una interrupción del proceso
+- **WHEN** se recupera desde el backoffice
+- **THEN** un `PENDING` puede despacharse con claim atómico
+- **AND** un `SENDING` abandonado pasa a `UNKNOWN` y se reconcilia antes de otro intento
+- **AND** dos despachos concurrentes no envían dos resúmenes
 
 #### Scenario: Doble confirmación del mismo pedido (borde)
 
@@ -158,7 +193,9 @@ La suficiencia de existencias SHALL comprobarse **en el momento de confirmar**, 
 
 ### Requirement: Cola de armado como proyección de solo lectura
 
-El sistema SHALL ofrecer una vista que liste los `Order` en estado confirmado pendientes de armado, ordenados de más antiguo a más reciente, actualizándose sin intervención manual.
+El sistema SHALL persistir `Order.fulfillmentStatus` (`PENDING` por defecto o `ASSEMBLED`), `assembledAt` y `assembledByUserId`. Una operación `markAssembled` en el detalle del backoffice SHALL exigir rol `EMPLOYEE` o `ADMIN` y cambiar atómicamente sólo pedidos `CONFIRMED/PENDING` a `ASSEMBLED`, registrando usuario y fecha. SHALL rechazar borradores y ser idempotente para pedidos ya armados, sin cambiar líneas, total ni existencias.
+
+El sistema SHALL ofrecer una vista que liste únicamente los `Order` con `status=CONFIRMED` y `fulfillmentStatus=PENDING`, ordenados de más antiguo a más reciente, actualizándose sin intervención manual.
 
 La vista SHALL ser de solo lectura: SHALL NOT permitir editar, confirmar ni cancelar pedidos, ni modificar existencias.
 
@@ -171,6 +208,20 @@ La vista SHALL ser de solo lectura: SHALL NOT permitir editar, confirmar ni canc
 - **THEN** el pedido aparece en la cola en la siguiente actualización automática
 - **AND** se muestra con sus líneas, cantidades y hora de confirmación
 - **AND** no se muestra el número de teléfono del cliente
+
+#### Scenario: Armado completado desde el backoffice
+
+- **GIVEN** un pedido confirmado pendiente de armado
+- **WHEN** un empleado lo marca armado desde su detalle
+- **THEN** queda `ASSEMBLED` con fecha y usuario y desaparece de la cola en el siguiente polling
+- **AND** repetir la operación conserva los campos y no descuenta stock otra vez
+- **AND** si era el último pendiente la cola muestra su estado vacío
+
+#### Scenario: Armado inválido (error)
+
+- **GIVEN** un pedido en borrador o un usuario sin rol autorizado
+- **WHEN** se invoca `markAssembled` directamente
+- **THEN** la operación se rechaza sin modificar el pedido
 
 #### Scenario: La consulta de la cola falla (error)
 

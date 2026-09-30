@@ -50,9 +50,9 @@ Una única aplicación Next.js 15 (App Router) desplegada en Railway, con Postgr
 | `Product` | `name`, `slug` único, `unit` (`WEIGHT_KG` \| `PIECE`), `pricePerUnitCents`, **`stockQuantity` (Decimal)**, `isActive`. Sembrado. |
 | `Customer` | `phoneE164` único, `profileName`. |
 | `Conversation` | `customerId` único (una conversación abierta por cliente), `lastInboundAt`. |
-| `Message` | `conversationId`, `direction` (`INBOUND` \| `OUTBOUND`), `channel` (`WHATSAPP` \| `SIMULATOR`), `providerMessageId` **único y nullable**, `body`, `status`, `sentByUserId` nullable. |
-| `Order` | `reference` (**los seis últimos caracteres del `cuid` en mayúsculas**, p. ej. `K2M4P0`), `customerId`, `conversationId`, `sourceMessageId`, `status` (`DRAFT` \| `CONFIRMED`), `totalCents`, `draftedBy` (`AI` \| `FALLBACK`), `confirmedAt`, `confirmedByUserId`. |
-| `OrderItem` | `orderId`, `productId` **nullable**, `rawText`, `quantity` (Decimal), `unitPriceCents`, `lineTotalCents`, `hasStockWarning`. |
+| `Message` | `conversationId`, `direction` (`INBOUND` \| `OUTBOUND`), `channel` (`WHATSAPP` \| `SIMULATOR`), `providerMessageId` **único y nullable**, `body`, `status` (`PENDING` \| `SENDING` \| `SENT` \| `FAILED` \| `UNKNOWN`), `sentByUserId` nullable, `summaryOrderId` **único y nullable** (FK a `Order`, outbox del resumen). |
+| `Order` | `reference` (**los seis últimos caracteres del `cuid` en mayúsculas**, p. ej. `K2M4P0`), `customerId`, `sourceMessageId` **único**, `status` (`DRAFT` \| `CONFIRMED`), `totalCents`, `draftedBy` (`AI` \| `FALLBACK`), `confirmedAt`, `confirmedByUserId`, `fulfillmentStatus` (`PENDING` \| `ASSEMBLED`, default `PENDING`), `assembledAt`, `assembledByUserId`. |
+| `OrderItem` | `orderId`, `productId` **nullable**, `rawText`, `resolutionStatus` (`RESOLVED` \| `UNRESOLVED`), `unit` nullable, `quantity` (Decimal, nullable), `unitPriceCents`, `lineTotalCents`, `hasStockWarning`. |
 
 **`stockQuantity` es un campo de `Product`, no una tabla `StockItem`.** Es una relación 1-a-1 estricta sin atributos propios, así que separarla solo añadiría una tabla, un join en cada consulta de propuesta y una fila más que crear en el seed. **Se evita** una entidad completa.
 
@@ -60,11 +60,19 @@ Una única aplicación Next.js 15 (App Router) desplegada en Railway, con Postgr
 
 *Trade-off:* se pierde el historial de movimientos de stock y la posibilidad de auditar transiciones futuras sin una migración. Ninguno de los dos está en el flujo E2E ni en ninguna capacidad. El día que exista un estado de rechazo, entra con su Requirement, sus escenarios y su tabla — no antes.
 
-`OrderItem.productId` es nullable a propósito: es lo que permite persistir una línea sin resolver conservando `rawText` en vez de descartarla o inventar un producto.
+`Order` conserva `customerId` y `sourceMessageId` como referencias autoritativas. La conversación se obtiene por `sourceMessage.conversation` o por la relación única del cliente; al crear el pedido se valida que ambas rutas correspondan al mismo cliente. No se persiste `Order.conversationId`.
+
+`OrderItem.resolutionStatus = UNRESOLVED` exige `productId = null`, conserva `rawText` original y deja `quantity` y `unit` en null si no son válidas. Sus importes son 0 enteros, un marcador de pendiente de valoración que la UI no presenta como producto gratuito. `RESOLVED` exige un producto existente, unidad coincidente y cantidad válida; al resolver una línea se capturan unidad y precio del catálogo. El borrador muestra el subtotal de líneas resueltas como incompleto si queda alguna sin resolver; no se puede confirmar hasta resolverlas o eliminarlas.
 
 ### D3 — Dinero en enteros, cantidades en Decimal
 
-Importes en `Int` de céntimos de CHF. Cantidades en `Decimal` de Prisma (`@db.Decimal(10,3)`), nunca `Float`.
+Importes en `Int` de céntimos de CHF. Cantidades en `Decimal` de Prisma (`@db.Decimal(10,3)`), nunca `Float`. `WEIGHT_KG` admite cantidades positivas en incrementos de 0,001 kg; `PIECE` exige enteros positivos. Se rechaza precisión extra antes de persistir, sin truncar ni redondear cantidades.
+
+Cada línea resuelta guarda `unitPriceCents` como snapshot del catálogo al crearla, añadirla o resolverla. Cambiar sólo su cantidad conserva ese precio; sustituir el producto captura el precio del nuevo producto. La confirmación conserva el snapshot y el resumen usa los mismos importes.
+
+Se multiplica `quantity × unitPriceCents` con aritmética decimal exacta y se redondea **una sola vez por línea**, al calcular o recalcular `lineTotalCents`, al entero más cercano con **ROUND_HALF_UP** (empate de 0,5 céntimos hacia arriba para importes no negativos). `totalCents` es la suma de los `lineTotalCents` ya redondeados, sin volver a redondear el total ni convertir a `number` antes del redondeo. Se rechazan importes fuera del rango de `Int`.
+
+Casos obligatorios de pricing/API: 0,333 kg × 1001 céntimos = 333,333 → **333**; 0,500 kg × 1001 = 500,5 → **501**; 0,667 kg × 1001 = 667,667 → **668**. Dos líneas de 0,500 kg × 1001 suman **1002**, no 1001. Todos los importes persistidos y expuestos son céntimos enteros.
 
 *Trade-off:* hay que convertir a la entrada y a la salida, y `Decimal` no es un `number` de JS. A cambio, elimina la clase de bugs de coma flotante en precios y en descuento de existencias — inaceptables en un sistema que cobra por peso.
 
@@ -90,7 +98,7 @@ Además del rol, las operaciones de escritura comprueban el **estado del recurso
 
 ```
 POST /api/webhooks/whatsapp   → adaptador Meta (verifica firma, desanida payload)
-GET  /api/webhooks/whatsapp   → handshake hub.challenge / hub.verify_token
+GET  /api/webhooks/whatsapp   → handshake hub.mode=subscribe, hub.verify_token y hub.challenge
 POST /api/simulator/messages  → adaptador simulador (requiere sesión + flag de entorno)
                                       ↓ ambos
                         ingestInboundMessage(msg: InboundMessage)
@@ -106,7 +114,7 @@ Superficie completa de rutas — **seis páginas, cuatro endpoints**, sin una so
 | `/login` | Autenticación |
 | `/admin/orders` | Listado de pendientes + badge |
 | `/admin/orders/[id]` | Detalle, ajuste de líneas y de existencias, mensaje manual, confirmación |
-| `/dashboard` | Cola de armado (misma consulta, filtro `CONFIRMED`) |
+| `/dashboard` | Cola de armado (misma consulta, filtros `CONFIRMED` y `fulfillmentStatus=PENDING`) |
 | `/simulator` | Canal de simulación |
 | `GET /api/orders/pending-count` | Polling del badge |
 | `POST /api/orders/[orderId]/confirm` | Confirmación transaccional |
@@ -138,6 +146,8 @@ interface OrderDrafter {
 - `LlmOrderDrafter` — SDK oficial `@anthropic-ai/sdk`, modelo `claude-opus-5`, salida estructurada vía `client.messages.parse()` con `output_config: { format: zodOutputFormat(DraftSchema), effort: "low" }`. Timeout de 8 s.
 - `RuleBasedOrderDrafter` — parser determinista (cantidad + unidad + alias de producto por regex sobre el catálogo). Sin red.
 
+Antes de invocar cualquier drafter, `src/core/drafting/intent.ts` clasifica el mensaje como `ORDER`, `CATALOG_QUERY` o `OTHER_OR_UNCERTAIN`. Sólo `ORDER` habilita AI o fallback; consulta mezclada con pedido explícito prevalece como `ORDER`. Saludos, consultas puras y mensajes inciertos se conservan sin pedido ni acuse. Este filtro es must-have aunque la respuesta automática de catálogo no se implemente. Un borrador abierto recibe las aclaraciones sin crear otro pedido.
+
 Selección por `ORDER_DRAFTER=llm|rules`. **Los tests corren siempre la determinista.** Si la implementación LLM lanza, agota el timeout o devuelve algo que no valida contra el esquema, se cae al fallback y el `Order` se marca `draftedBy = FALLBACK`.
 
 *Trade-off:* mantener dos implementaciones del mismo contrato es ~45 min extra. Compra CI determinista, una demo que no depende de la red ni de la cuota del proveedor, y disponibilidad real del flujo cuando el LLM falla.
@@ -146,26 +156,29 @@ Selección por `ORDER_DRAFTER=llm|rules`. **Los tests corren siempre la determin
 
 ### D9 — La AI propone, el servidor decide
 
-`DraftResult` contiene únicamente `{ productSlug | rawText, quantity, unit }` por línea. **Ni precios ni totales ni disponibilidad.** El servidor los calcula en `src/core/orders/pricing.ts` leyendo `Product.pricePerUnitCents` y `Product.stockQuantity`.
+`DraftResult` contiene únicamente `{ productSlug | rawText, quantity, unit }` por línea. **Ni precios ni totales ni disponibilidad.** El servidor valida producto, unidad y precisión antes de persistir y calcula precios con el snapshot definido en D3 y disponibilidad leyendo `Product.stockQuantity`. Cantidades inválidas conservan el texto como línea `UNRESOLVED`, sin sustituir productos ni perder las líneas reconocidas.
 
 *Justificación:* es simultáneamente el control contra prompt injection con consecuencias de negocio y lo que hace el flujo testeable. Un cliente que escriba "el entrecot cuesta 0,10 CHF" no puede afectar nada, porque ese campo no existe en el contrato de salida del modelo.
 
-### D10 — Confirmación: una transacción, con `updateMany` condicional
+### D10 — Confirmación: validación y cambios en una transacción
 
 `confirmOrder` en `src/core/orders/confirm.ts`, dentro de `prisma.$transaction`:
 
-1. `updateMany({ where: { id, status: 'DRAFT' }, data: { status: 'CONFIRMED', ... } })`. Si `count === 0`, el pedido ya no estaba en borrador: se aborta sin error y sin efectos.
-2. Por cada línea, `updateMany({ where: { id: productId, stockQuantity: { gte: qty } }, data: { stockQuantity: { decrement: qty } } })`. Si `count === 0`, existencias insuficientes: se lanza y la transacción revierte entera.
+1. Bloquear la fila de `Order` (`SELECT … FOR UPDATE`); las ediciones de líneas toman el mismo bloqueo antes de comprobar `DRAFT`. Si no existe: 404. Si ya está confirmado: 200 con el resultado persistido, sin nuevos efectos.
+2. Leer las líneas bajo ese bloqueo **antes de cambiar `Order.status`**. Exigir al menos una línea y que todas estén `RESOLVED`, tengan `productId` no nulo y un `Product` resoluble, unidad coincidente y cantidad válida. Bloquear los productos en orden de id para mantener esas referencias durante la operación. Pedido vacío: `409 EMPTY_ORDER`; línea no resuelta, referencia ausente o cantidad/unidad inválida: `409 UNRESOLVED_ORDER_ITEMS`, con `orderItemIds`. No se modifica estado ni stock.
+3. `updateMany({ where: { id, status: 'DRAFT' }, data: { status: 'CONFIRMED', confirmedAt, confirmedByUserId, ... } })`. La auditoría vive en estos campos. Verificar que se actualizó una fila.
+4. Por cada producto, sumar cantidades de sus líneas y ejecutar `updateMany({ where: { id: productId, stockQuantity: { gte: qty } }, data: { stockQuantity: { decrement: qty } } })`. Si `count === 0`: `409 INSUFFICIENT_STOCK` y rollback de **toda** la transacción, incluidas líneas descontadas antes.
+5. Crear un `Message` saliente `PENDING` con `summaryOrderId = Order.id` único y el resumen inmutable de líneas/precios finales (D12). Estado, stock, auditoría y outbox se confirman juntos. Si falla cualquier escritura, se revierte todo.
 
-Dos pasos, no tres: el paso 1 ya escribe `confirmedAt` y `confirmedByUserId`, así que la trazabilidad de quién confirmó y cuándo no necesita una inserción adicional.
+`totalCents` sigue D3 y no cambia por variaciones posteriores del catálogo. El envío externo se ejecuta sólo después del commit.
 
-*Justificación:* el `where` condicional hace que comprobación y escritura sean una sola operación atómica en la base. Un `SELECT` previo seguido de `UPDATE` tiene una carrera entre ambos, y con dos empleados confirmando a la vez las existencias pueden quedar negativas. El paso 1 da la idempotencia gratis: la segunda confirmación no encuentra fila que actualizar.
+*Justificación:* el `where` condicional hace que comprobación y escritura sean una sola operación atómica en la base. Un `SELECT` sin bloqueo seguido de `UPDATE` tiene una carrera entre ambos, y con dos empleados confirmando a la vez las existencias pueden quedar negativas. El bloqueo del pedido serializa confirmaciones y ediciones; una segunda confirmación devuelve el resultado ya persistido.
 
 *Trade-off:* el mensaje "existencias insuficientes" pierde detalle, porque el fallo se detecta por `count === 0` y no por una lectura previa. Se recupera releyendo el `Product` en el manejador del error para construir el mensaje al empleado.
 
 ### D11 — Corrección de existencias desde la línea del pedido, sin pantalla de catálogo
 
-La única escritura de `Product.stockQuantity` fuera de la confirmación es una server action invocada desde el detalle del pedido, sobre la línea donde el empleado ve la discrepancia.
+La única escritura de `Product.stockQuantity` fuera de la confirmación es una server action invocada desde el detalle del pedido, sobre la línea donde el empleado ve la discrepancia. Exige `requireRole`, `Product.isActive = true` y cantidad no negativa válida para la unidad; comprobación de actividad y escritura son atómicas.
 
 *Justificación:* es el momento real en que un carnicero descubre que el stock está mal — no hay un ritual separado de "gestión de inventario" en una tienda de seis personas. **Se evita** una ruta `/admin/products`, un CRUD y una capacidad entera.
 
@@ -173,7 +186,11 @@ La única escritura de `Product.stockQuantity` fuera de la confirmación es una 
 
 ### D12 — Envío saliente síncrono, fuera de la transacción
 
-El resumen al cliente se envía **después** de que la transacción commitee, nunca dentro. Se registra como `Message` saliente con `status` (`SENT` \| `FAILED`).
+El resumen al cliente se envía **después** del commit desde el outbox persistente: la propia fila `Message` creada en D10, sin tabla ni servicio nuevos. `summaryOrderId` único garantiza un resumen por pedido; la clave estable de entrega es `order-summary:<orderId>`. El cuerpo conserva los precios comprometidos y no se regenera en un reintento.
+
+La request de confirmación intenta despachar tras el commit; una server action autenticada desde el detalle permite despachar un `PENDING` o reintentar un `FAILED` conocido. Un cambio atómico `PENDING/FAILED → SENDING` admite un solo emisor concurrente. Éxito: `SENT` y `providerMessageId`; rechazo explícito sin entrega: `FAILED`. Timeout, caída tras reclamar la fila o resultado ambiguo: `UNKNOWN` (un `SENDING` abandonado se reconcilia como tal). Nunca se reenvía ciegamente `SENDING`, `UNKNOWN` ni `SENT`: se consulta/reconcilia la entrega antes de habilitar otro intento. Si el transporte admite deduplicación, todos los intentos reutilizan la clave estable; si no permite determinar la entrega, el resumen queda `UNKNOWN` para atención humana. El transporte `log` deduplica por esa clave en tests.
+
+Así se garantiza una sola entrega lógica por `Order` sin prometer entrega eventual exactamente una vez sobre un proveedor sin deduplicación. No hay worker ni reintentos automáticos: la recuperación usa el outbox desde el backoffice. Un fallo externo nunca revierte la confirmación ni vuelve a descontar stock.
 
 *Justificación:* una llamada de red dentro de una transacción la mantiene abierta durante segundos y puede dejar el pedido sin confirmar por un fallo del proveedor. Al revés tampoco es aceptable: si el envío falla, el pedido ya está confirmado y las existencias descontadas, que es lo correcto — la venta es real aunque el aviso no llegue.
 
@@ -183,7 +200,7 @@ El resumen al cliente se envía **después** de que la transacción commitee, nu
 
 `GET /api/orders/pending-count` (autenticada) devuelve el número de pedidos en borrador; un componente cliente lo consulta cada 10 s. Ante fallo conserva el último valor conocido y lo marca desactualizado — nunca muestra cero.
 
-`/dashboard` **reusa la misma función de consulta** que `/admin/orders`, cambiando el filtro de estado a `CONFIRMED` y proyectando menos campos (sin teléfono, sin conversación). No hay consulta nueva ni componente nuevo de datos.
+`/dashboard` **reusa la misma función de consulta** que `/admin/orders`, filtrando `status=CONFIRMED` y `fulfillmentStatus=PENDING` y proyectando menos campos (sin teléfono, sin conversación). La server action `markAssembled` en `src/app/admin/orders/[id]/actions.ts`, protegida por `requireRole`, cambia atómicamente sólo un pedido `CONFIRMED/PENDING` a `ASSEMBLED` y registra `assembledAt`/`assembledByUserId`. Repetirla no tiene efectos; un borrador se rechaza. Se ejecuta desde el backoffice y mantiene `/dashboard` de solo lectura; el pedido armado desaparece en el siguiente polling.
 
 *Alternativa considerada:* SSE o WebSockets. **Rechazada:** no hay infraestructura de realtime en el stack y Railway añadiría fricción. El polling son 30 minutos y cubre el requisito.
 
@@ -204,7 +221,8 @@ Todo dato que entra pasa por un esquema Zod en `src/lib/validation/`. Puntos con
 | Salida del `LlmOrderDrafter` | `src/core/drafting/llm.ts`, contra `DraftSchema` antes de persistir |
 | Edición de líneas de pedido | `src/app/admin/orders/[id]/actions.ts` |
 | Corrección de existencias | `src/app/admin/orders/[id]/actions.ts` |
-| Confirmación de pedido | `src/app/admin/orders/[id]/actions.ts`, sobre el id |
+| Confirmación de pedido | `src/app/api/orders/[orderId]/confirm/route.ts`, sobre el id |
+| Completar armado / recuperar resumen pendiente | `src/app/admin/orders/[id]/actions.ts`, tras `requireRole` y validación de estado |
 | Mensaje manual al cliente | `src/app/admin/orders/[id]/actions.ts` |
 | Credenciales de login | `src/app/login/actions.ts` |
 
