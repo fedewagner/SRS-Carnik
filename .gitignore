@@ -1,0 +1,17 @@
+# env
+.env
+.env.*
+!.env.example
+
+# node
+node_modules/
+.next/
+dist/
+
+# agentes (config local, puede contener credenciales)
+.claude/
+.codex/
+.cursor/
+
+# so
+.DS_Store
