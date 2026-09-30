@@ -6,9 +6,33 @@ Mantiene la conversación con el cliente en los dos sentidos por el canal que ya
 
 ## ADDED Requirements
 
+### Requirement: Handshake de verificación del proveedor
+
+`GET /api/webhooks/whatsapp` SHALL validar `hub.verify_token` contra el secreto compartido `META_VERIFY_TOKEN`, independientemente de la firma HMAC del POST. Con token válido, `hub.mode=subscribe` y `hub.challenge` no vacío SHALL responder `200 text/plain` con el challenge exacto. Token ausente o distinto SHALL producir `403`; modo ausente/distinto o challenge ausente/vacío con token válido SHALL producir `400`. Ningún caso SHALL persistir entidades, invocar AI ni registrar tokens en logs.
+
+#### Scenario: Handshake válido
+
+- **GIVEN** el token compartido correcto, `hub.mode=subscribe` y challenge `abc123`
+- **WHEN** el proveedor llama al GET de verificación
+- **THEN** recibe `200 text/plain` con cuerpo `abc123`, sin requerir firma del POST
+
+#### Scenario: Handshake rechazado
+
+- **GIVEN** token ausente o distinto, o parámetros incompletos con token válido
+- **WHEN** se invoca el GET
+- **THEN** devuelve `403` para el token inválido o `400` para modo/challenge inválidos, sin devolver el challenge ni persistir datos
+
+#### Scenario: Handshake repetido (borde)
+
+- **GIVEN** un handshake válido ya respondido
+- **WHEN** se repite el mismo GET
+- **THEN** devuelve el mismo challenge sin crear entidades ni disparar procesamiento
+
 ### Requirement: Recepción autenticada de mensajes entrantes
 
-El sistema SHALL aceptar mensajes entrantes únicamente cuando la petición esté firmada por el proveedor, y SHALL rechazar cualquier petición cuya firma no valide, sin persistir nada ni disparar procesamiento posterior.
+El sistema SHALL aceptar mensajes entrantes en `POST /api/webhooks/whatsapp` únicamente cuando la petición esté firmada por el proveedor, y SHALL rechazar cualquier petición cuya firma no valide, sin persistir nada ni disparar procesamiento posterior.
+
+Tras persistir el mensaje, el filtro de intención de `ai-order-intake` SHALL habilitar los drafters solo para pedidos. Saludos, consultas e intención indeterminada SHALL quedar sin `Order` ni acuse, aunque no esté habilitada la respuesta automática de catálogo.
 
 La verificación SHALL calcularse sobre el cuerpo exacto recibido, antes de cualquier parseo o normalización, y SHALL usar comparación en tiempo constante.
 
@@ -134,7 +158,7 @@ El sistema SHALL enviar al cliente tres tipos de mensaje saliente por el mismo c
 
 1. Un **acuse de recepción** automático cuando un mensaje entrante genera un pedido en borrador. El acuse SHALL confirmar únicamente la recepción y SHALL NOT comprometer disponibilidad, precios ni plazos.
 2. Un **mensaje manual** escrito por un usuario con rol `EMPLOYEE` o `ADMIN` desde el detalle del pedido.
-3. Un **resumen** con las líneas finales y el total al confirmarse el pedido, enviado una sola vez por pedido.
+3. Un **resumen** con las líneas finales y el total al confirmarse el pedido, persistido como outbox en la transacción de confirmación y entregado después del commit con la idempotencia y reconciliación de `order-confirmation` y D12.
 
 **Datos personales:** todo `Message` saliente SHALL registrar qué usuario lo originó, o si fue generado automáticamente. Un `Message` ya enviado SHALL ser inmutable y SHALL NOT poder editarse ni borrarse desde la interfaz.
 

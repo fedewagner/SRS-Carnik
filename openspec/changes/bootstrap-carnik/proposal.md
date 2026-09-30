@@ -84,7 +84,7 @@ Marco aplicable: **nLPD/revDSG suiza**, y GDPR si hay clientes de la UE. El sist
 | Rol | Es | Puede |
 |---|---|---|
 | `ADMIN` | Dueño de la carnicería | Todo lo del rol `EMPLOYEE`, más modificar los datos identificativos de un `Customer`. |
-| `EMPLOYEE` | Personal de mostrador y obrador | Leer pedidos, conversaciones y clientes; editar líneas de un pedido en borrador; ajustar existencias de un producto; confirmar pedidos; escribir mensajes al cliente; ver la cola de armado. |
+| `EMPLOYEE` | Personal de mostrador y obrador | Leer pedidos, conversaciones y clientes; editar líneas de un pedido en borrador; ajustar existencias de un producto; confirmar pedidos; marcarlos armados desde el backoffice; escribir mensajes al cliente; ver la cola de armado. |
 | *Anónimo* | Visitante, o el webhook de Meta | Nada que exponga datos. Solo dos superficies: el endpoint del webhook —que no lee, solo escribe tras verificar firma— y la pantalla de login. |
 
 El **cliente de WhatsApp no es un rol del sistema**: no tiene cuenta, no se autentica y no ve ninguna pantalla. Su número de teléfono es un identificador, **nunca una credencial**. Cualquier persona con un teléfono puede escribir; por eso ningún mensaje entrante produce por sí solo un efecto irreversible, y la confirmación humana es el control compensatorio.
@@ -98,7 +98,8 @@ El **cliente de WhatsApp no es un rol del sistema**: no tiene cuenta, no se aute
 | Operación | Condición sobre el recurso |
 |---|---|
 | Editar, añadir o eliminar una línea | El `Order` debe estar en estado `DRAFT`. Un pedido confirmado es inmutable. |
-| Confirmar un pedido | El `Order` debe estar en `DRAFT`, y **cada** línea debe tener existencias suficientes en el momento de confirmar, no cuando se generó el borrador. |
+| Confirmar un pedido | El `Order` debe estar en `DRAFT`, tener al menos una línea y todas resueltas con producto existente y cantidad válida; **cada** línea debe tener existencias suficientes en el momento de confirmar, no cuando se generó el borrador. |
+| Marcar pedido armado | El `Order` debe estar `CONFIRMED`; fijar `assembledAt` una sola vez. |
 | Ajustar existencias de un producto | El `Product` debe estar activo, y la cantidad debe ser válida para su unidad de venta. |
 | Enviar un mensaje manual | La `Conversation` debe existir. Un `Message` ya enviado es inmutable para todos los roles. |
 | Modificar datos identificativos de un `Customer` | Rol `ADMIN` exclusivamente. |
