@@ -11,13 +11,33 @@ Pedidos por WhatsApp para carnicerías, redactados por AI y confirmados por una 
 | **Nombre del producto** | Carnik |
 | **Autor** | Federico J. Wagner |
 | **Contexto** | Proyecto final AI4Devs |
-| **Repositorio** | *pendiente de la Entrega 3* |
-| **URL de la demo** | *pendiente de la Entrega 3* |
-| **Stack** | Next.js 15 (App Router) · Prisma · PostgreSQL · Railway |
-| **Alcance** | 28 tareas · ~20 h estimadas sobre un presupuesto de 22 h netas |
-| **Estado** | Especificación cerrada. Implementación pendiente |
+| **Repositorio** | https://github.com/fedewagner/SRS-Carnik |
+| **URL de la demo** | https://srs-carnik-production.up.railway.app · las credenciales de prueba se entregan por el formulario, no en el repositorio público |
+| **Stack** | Next.js 15 (App Router) · Prisma 6 · PostgreSQL 16 · Claude API · Railway |
+| **Alcance** | 17 tareas del piso replanificado, de 28 especificadas · ver la tabla de abajo |
+| **Estado** | Flujo E2E desplegado y funcionando. 26 tests en verde en CI |
 
-Las secciones **§2.4 (infraestructura), §2.6 (tests) y §7 (pull requests)** describen lo previsto, no lo verificado: la evidencia de ejecución llega en la Entrega 3. El resto del documento se deriva de la especificación versionada en `openspec/changes/bootstrap-carnik/`.
+El documento combina dos capas. **§1.3, §1.4, §2.4, §2.6 y §7 describen lo implementado y verificado**; el resto es el diseño de la Entrega 1, derivado de `openspec/changes/bootstrap-carnik/`, que sigue siendo válido para lo que está fuera de esta entrega.
+
+### Alcance entregado frente a especificado
+
+La entrega se adelantó a dos días de trabajo sin código escrito. El plan de 28 tareas (~20 h) no entraba, así que se replanificó a un **piso de 17 tareas (~10 h)** ejecutando el orden de caída pre-comprometido del `proposal.md` hasta el escalón 3. Lo que no está es una decisión registrada en `tasks.md`, no una omisión.
+
+| Historia | Qué es | Estado |
+|---|---|:-:|
+| `US-06` | Login con rol y sesión de 8 h | ✅ |
+| `US-02` | Simulador de mensajes entrantes | ✅ |
+| `US-04a` | Interpretación determinista del pedido | ✅ |
+| `US-04b` | Interpretación con AI y caída al determinista | ✅ |
+| `US-05` | Valoración en servidor contra catálogo y existencias | ✅ |
+| `US-07` | Listado y detalle con la conversación | ✅ · sin badge con polling |
+| `US-10` | Confirmación transaccional que descuenta existencias | ✅ |
+| `US-11` | Resumen al cliente tras confirmar | ✅ · registrado en la conversación con transporte `log`; sin acuse automático |
+| `US-01` | Webhook real de Meta Cloud API | ⏭ escalón 3 del orden de caída: el canal es el simulador |
+| `US-03` | Límite de mensajes por remitente | ⏭ sólo protege el webhook público, que no existe en esta entrega |
+| `US-08` · `US-09` | Ajuste de líneas y corrección de existencias desde la línea | ⏭ primer incremento pendiente |
+| `US-12` | Mensaje manual del empleado | ⏭ |
+| `US-13` | Cola de armado en `/dashboard` | ⏭ escalón 2 del orden de caída |
 
 ---
 
@@ -82,69 +102,85 @@ Responde automáticamente a preguntas simples sobre el precio o la disponibilida
 
 ### 1.3 Diseño y experiencia de usuario
 
-> **Pendiente de la Entrega 2.** Esta sección requiere la aplicación funcionando: capturas del backoffice, de la pantalla del local y de la conversación real por WhatsApp, más el recorrido de un pedido de principio a fin. Documentarlo antes con mockups sería describir un producto distinto del que se va a entregar.
+Recorrido real en producción, capturado en https://srs-carnik-production.up.railway.app con el intérprete de AI activo.
+
+**1 · Acceso.** No hay registro: el personal entra con las cuentas sembradas. Toda pantalla del backoffice redirige aquí sin sesión.
+
+![Login](docs/screenshots/01-login.png)
+
+**2 · El cliente escribe.** El simulador reproduce el mensaje que llegaría por WhatsApp y entra por la misma función de ingesta que usará el webhook. La respuesta muestra el borrador ya valorado: la AI resolvió «un kilo y medio» y «medio de picada», y dejó el cordero —que no está en el catálogo— como mención sin reconocer en vez de inventar un producto.
+
+![Simulador con el borrador resultante](docs/screenshots/02-simulador-borrador.png)
+
+**3 · El empleado revisa.** Una sola pantalla: líneas con el texto original del cliente debajo, precios de la base, aviso cuando una línea supera lo disponible y la conversación al lado. La cabecera indica si el borrador lo propuso la AI o el intérprete por reglas.
+
+![Detalle del borrador](docs/screenshots/03-detalle-borrador.png)
+
+**4 · Confirma.** Un botón. Las existencias se descuentan en la misma transacción y el resumen al cliente queda registrado en la conversación. Si alguna línea supera el stock en el momento de confirmar, la respuesta es un `409` que señala la línea y no se modifica nada.
+
+![Pedido confirmado con el resumen al cliente](docs/screenshots/04-detalle-confirmado.png)
+
+**5 · Listado.** Pendientes primero, con el contador de borradores por confirmar.
+
+![Listado de pedidos](docs/screenshots/05-listado.png)
 
 ### 1.4 Instrucciones de instalación
-
-> Esqueleto de instalación. Los comandos exactos se confirman con la primera entrega de código.
 
 #### Requisitos previos
 
 | Requisito | Versión / nota |
 |---|---|
-| Node.js | 20 LTS o superior |
-| PostgreSQL | 16, local o en Docker |
-| Cuenta de desarrollador de Meta | App con el producto WhatsApp añadido y su número de prueba. **El token permanente se genera vía System User** — el token por defecto del panel caduca a las 24 h |
-| API key de Anthropic | Para la interpretación del pedido. Opcional en local: con `ORDER_DRAFTER=rules` el sistema funciona sin ella |
+| Node.js | 22 (la que usa CI); 20 LTS también funciona |
+| Docker | Para PostgreSQL 16 local. Vale cualquier PostgreSQL 16 accesible |
+| API key de Anthropic | Opcional. Con `ORDER_DRAFTER=rules` el sistema funciona entero sin ella |
+
+#### Puesta en marcha
+
+```bash
+git clone https://github.com/fedewagner/SRS-Carnik.git && cd SRS-Carnik
+npm install                      # también ejecuta prisma generate
+```
+
+```bash
+# PostgreSQL local en el puerto 54329, con una base para desarrollo y otra para tests
+docker run -d --name carnik-pg -e POSTGRES_USER=carnik -e POSTGRES_PASSWORD=carnik \
+  -e POSTGRES_DB=carnik -p 54329:5432 postgres:16-alpine
+docker exec carnik-pg psql -U carnik -c "CREATE DATABASE carnik_test"
+```
+
+```bash
+cp env.example .env              # completar SESSION_SECRET y SEED_PASSWORD
+npx prisma migrate dev           # aplica la migración inicial, con sus CHECK
+npm run db:seed                  # 8 productos y 2 usuarios
+npm run dev                      # http://localhost:3000
+```
+
+El fichero de ejemplo se llama `env.example`, sin punto inicial: el hook de pre-commit del repositorio rechaza cualquier `.env*` para que un secreto no pueda llegar a un commit por descuido.
+
+Usuarios sembrados: `admin@carnik.test` (`ADMIN`) y `empleado@carnik.test` (`EMPLOYEE`), ambos con la contraseña de `SEED_PASSWORD`.
 
 #### Variables de entorno
-
-Copiar `.env.example` a `.env` y completar. Ningún secreto se versiona.
 
 | Variable | Para qué sirve |
 |---|---|
 | `DATABASE_URL` | Cadena de conexión a PostgreSQL |
-| `SESSION_SECRET` | Firma de la cookie de sesión del backoffice |
-| `META_APP_SECRET` | Verificación de la firma del webhook. **No es el token de acceso** |
-| `META_VERIFY_TOKEN` | Valor que eliges tú para el handshake de alta del webhook |
-| `WHATSAPP_TOKEN` | Token permanente de System User para enviar mensajes |
-| `WHATSAPP_PHONE_NUMBER_ID` | Número emisor de la app de Meta |
-| `WHATSAPP_TRANSPORT` | `meta` para enviar de verdad, `log` para escribir a consola |
-| `ANTHROPIC_API_KEY` | Proveedor de AI |
-| `ORDER_DRAFTER` | `llm` o `rules` (implementación determinista de respaldo) |
-| `SIMULATOR_ENABLED` | `true` habilita el simulador de mensajes entrantes |
+| `SESSION_SECRET` | Firma de la cookie de sesión. Mínimo 32 caracteres |
+| `ANTHROPIC_API_KEY` | Proveedor de AI. Sólo con `ORDER_DRAFTER=llm` |
+| `ANTHROPIC_MODEL` | Modelo del intérprete. Por defecto `claude-opus-5-5` |
+| `ANTHROPIC_WORKSPACE_ID` | Sólo si la API key no está asignada a un workspace |
+| `ORDER_DRAFTER` | `llm` o `rules` (determinista, sin red) |
+| `WHATSAPP_TRANSPORT` | `log`: el mensaje saliente se registra sin llamar a ningún proveedor. Es el único modo de esta entrega |
+| `SIMULATOR_ENABLED` | `true` habilita `/simulator` y su endpoint. Con `false` responden 404 |
+| `SEED_PASSWORD` | Contraseña de los usuarios sembrados. Sólo la usa el seed |
 
-#### Instalación, migración y semillas
-
-```bash
-npm install
-```
+#### Tests
 
 ```bash
-cp .env.example .env
+npm test                         # unitarios + integración contra carnik_test
+npm run build && npm run test:e2e  # E2E con Playwright contra next start
 ```
 
-```bash
-npx prisma migrate dev
-```
-
-```bash
-npx prisma db seed
-```
-
-```bash
-npm run dev
-```
-
-#### Desarrollo local sin WhatsApp
-
-No hace falta exponer un túnel público ni configurar Meta para trabajar en local. Con esta configuración el sistema es completamente funcional usando el simulador de mensajes entrantes en `/simulator`:
-
-```bash
-SIMULATOR_ENABLED=true WHATSAPP_TRANSPORT=log ORDER_DRAFTER=rules npm run dev
-```
-
-El seed deja dos usuarios cargados, uno con rol `ADMIN` y otro con rol `EMPLOYEE`, además de un catálogo de carnicería con existencias iniciales. No hay registro de usuarios: el acceso al backoffice es sólo con esas credenciales.
+Los tests leen `tests/test.env`, que no contiene secretos, y **nunca el `.env` de desarrollo**. La configuración se niega a correr contra una base cuyo nombre no contenga `test`.
 
 ---
 
@@ -246,67 +282,50 @@ Los sacrificios 3 y 4 son los únicos que tocan al usuario final. Los demás son
 
 ### 2.3 Estructura de ficheros
 
+Árbol real del repositorio. Los ficheros del diseño que quedaron fuera de esta entrega no se crearon: van al final, marcados ⏭, para que el diseño de §2.2 siga siendo legible.
+
 ```
-carnik/
-├── .github/
-│   └── workflows/
-│       └── ci.yml                     # lint, typecheck, unit, integración, build, E2E
-├── openspec/                          # especificación viva, versionada con el código
-│   ├── config.yaml                    # contexto de producto y reglas por artefacto
-│   ├── changes/
-│   │   └── bootstrap-carnik/
-│   │       ├── proposal.md            # qué y por qué
-│   │       ├── design.md              # cómo, con trade-offs
-│   │       ├── tasks.md               # 28 tareas con presupuesto
-│   │       └── specs/                 # deltas por capacidad
-│   │           ├── whatsapp-conversation/spec.md
-│   │           ├── ai-order-intake/spec.md
-│   │           ├── order-confirmation/spec.md
-│   │           └── conversational-catalog/spec.md
-│   └── specs/                         # specs vigentes, tras archivar el change
+SRS-Carnik/
+├── .github/workflows/ci.yml           # auditoría, lint, typecheck, unit + integración, build, E2E
+├── openspec/changes/bootstrap-carnik/ # especificación viva: proposal, design, tasks (17 del piso), specs
 ├── prisma/
 │   ├── schema.prisma                  # las 7 entidades de §3
-│   ├── migrations/
-│   └── seed.ts                        # catálogo, existencias y dos usuarios
+│   ├── migrations/…_init/migration.sql # incluye los dos CHECK añadidos a mano
+│   └── seed.ts                        # idempotente: 8 productos, 2 usuarios
 ├── src/
 │   ├── app/                           # ADAPTADORES DE ENTRADA — conocen HTTP
-│   │   ├── layout.tsx
-│   │   ├── page.tsx
+│   │   ├── layout.tsx · page.tsx      # / redirige según sesión
 │   │   ├── login/{page.tsx,actions.ts}
-│   │   ├── admin/
-│   │   │   ├── layout.tsx             # requireRole se invoca aquí
-│   │   │   └── orders/
-│   │   │       ├── page.tsx           # listado e indicador
-│   │   │       └── [id]/{page.tsx,actions.ts}
-│   │   ├── dashboard/page.tsx         # cola de armado
-│   │   ├── simulator/page.tsx
+│   │   ├── (staff)/                   # grupo de rutas con requireRole en el layout
+│   │   │   ├── layout.tsx
+│   │   │   ├── admin/orders/page.tsx            # listado
+│   │   │   ├── admin/orders/[id]/page.tsx       # detalle + conversación
+│   │   │   └── simulator/page.tsx
 │   │   └── api/
-│   │       ├── webhooks/whatsapp/route.ts
+│   │       ├── health/route.ts
 │   │       ├── simulator/messages/route.ts
-│   │       └── orders/
-│   │           ├── pending-count/route.ts
-│   │           └── [orderId]/confirm/route.ts
+│   │       └── orders/[orderId]/confirm/route.ts
 │   ├── core/                          # LÓGICA DE NEGOCIO — no importa Next.js
-│   │   ├── messaging/{types,ingest,outbound,rateLimit}.ts
-│   │   ├── drafting/{types,schema,rules,llm,index}.ts
-│   │   ├── orders/{pricing,createDraft,confirm,queries}.ts
-│   │   └── stock/adjust.ts
-│   ├── lib/                           # ADAPTADORES DE SALIDA e infraestructura
-│   │   ├── db.ts
+│   │   ├── messaging/{types,ingest,outbound}.ts
+│   │   ├── drafting/{types,schema,aliases,rules,llm,index}.ts
+│   │   └── orders/{pricing,createDraft,confirm,queries}.ts
+│   ├── lib/                           # infraestructura
+│   │   ├── db.ts · http.ts
 │   │   ├── auth/{session,guard}.ts
-│   │   ├── whatsapp/{signature,parse,transport}.ts
-│   │   └── validation/{auth,orders,messaging}.ts
-│   └── components/                    # UI compartida
-│       ├── PendingBadge.tsx
-│       ├── ConfirmOrderButton.tsx
-│       └── OrderLineRow.tsx
+│   │   └── validation/{messaging,orders}.ts
+│   └── components/{ConfirmOrderButton,SimulatorForm,StatusBadge}.tsx
 ├── tests/
-│   ├── unit/                          # sin base de datos
-│   ├── integration/                   # con PostgreSQL efímero
-│   └── e2e/order-flow.spec.ts         # un único E2E, contra el simulador
-├── .env.example                       # las 10 variables, sin valores
-├── SECURITY.md                        # lo implementado y la deuda declarada
-└── readme.md
+│   ├── unit/ · integration/ · e2e/order-flow.spec.ts
+│   ├── env.ts · test.env              # variables de test, sin secretos
+│   └── global-setup.ts                # migraciones sobre la base de test
+├── docs/screenshots/                  # capturas de §1.3, tomadas en producción
+├── env.example                        # variables de esta entrega, sin valores
+├── railway.json · next.config.ts · vitest.config.ts · playwright.config.ts
+└── readme.md · prompts.md
+
+⏭ Fuera de esta entrega: api/webhooks/whatsapp, api/orders/pending-count, dashboard/,
+  admin/orders/[id]/actions.ts, core/messaging/rateLimit.ts, core/stock/adjust.ts,
+  lib/whatsapp/*, PendingBadge.tsx, OrderLineRow.tsx, SECURITY.md
 ```
 
 #### Propósito de cada carpeta y a qué patrón obedece
@@ -336,7 +355,21 @@ Es también lo que hace posible la pirámide de `tests/`: la mayoría del compor
 
 ### 2.4 Infraestructura y despliegue
 
-> **Todo lo de esta sección es PREVISTO.** Describe el diseño acordado, no una infraestructura verificada: hoy no existe código, ni proyecto en Railway, ni pipeline ejecutado. **La evidencia real —URL pública funcionando, capturas del pipeline en verde, registro de un despliegue— llega en la Entrega 3.**
+#### Estado verificado
+
+| Pieza | Estado real |
+|---|---|
+| **URL pública** | https://srs-carnik-production.up.railway.app · healthcheck en `/api/health` |
+| **Railway** | Proyecto con dos servicios, la app Next.js (builder Railpack) y PostgreSQL 16 gestionado sin exposición pública. Configuración versionada en `railway.json` |
+| **Arranque** | `npm start` = `prisma migrate deploy && next start`. Las migraciones corren antes de servir tráfico, como describe el diagrama |
+| **CI** | `.github/workflows/ci.yml` en verde en cada push del PR: auditoría de dependencias de producción → lint → typecheck → unitarios e integración contra un servicio PostgreSQL → build → E2E con Playwright |
+| **Cabeceras de seguridad** | `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` y `Referrer-Policy` verificadas en la respuesta pública |
+
+Tres diferencias con el diseño de abajo:
+
+- **Sin Meta.** No hay webhook ni variables de Meta en Railway: el canal de entrada es el simulador y el saliente, `log` (§0, alcance entregado).
+- **Migraciones en CI.** No son un paso propio del workflow: las aplica el `globalSetup` de los tests antes de la primera suite, que es el mismo `prisma migrate deploy` sobre una base vacía.
+- **Protección de `main`.** El paso 4 del proceso de despliegue («la rama `main` está protegida») es una recomendación, **no está configurado** en el repositorio. El control efectivo es que todo entra por PR con el CI en verde.
 
 #### Pipeline de integración y despliegue
 
@@ -470,56 +503,19 @@ Mientras no haya datos reales, la salida de emergencia es `prisma migrate reset`
 
 Las tres variables marcadas ⬜ en local sólo hacen falta si se quiere probar contra Meta o contra el proveedor de AI de verdad. El desarrollo normal no las necesita.
 
-#### `.env.example`
+#### `env.example` y `.gitignore`
 
-Se versiona con las diez claves y **sin un solo valor**. Es la lista de la compra, no un fichero de configuración.
+**Implementado.** El fichero de ejemplo se versiona como `env.example`, con las claves de esta entrega y sin un solo secreto. Va sin punto inicial porque el hook de pre-commit del repositorio rechaza cualquier ruta que coincida con `.env` o `.env.*`, también la de ejemplo: preferí renombrar el fichero a debilitar el control. Las variables de test, también sin secretos, viven en `tests/test.env`.
 
-```bash
-# Base de datos
-DATABASE_URL=
-
-# Sesión del backoffice
-SESSION_SECRET=
-
-# WhatsApp · Meta Cloud API
-# META_APP_SECRET es el secreto de la app, NO el token de acceso.
-# WHATSAPP_TOKEN debe ser un token permanente de System User:
-# el token por defecto del panel de Meta caduca a las 24 h.
-META_APP_SECRET=
-META_VERIFY_TOKEN=
-WHATSAPP_TOKEN=
-WHATSAPP_PHONE_NUMBER_ID=
-
-# meta = envía de verdad | log = escribe a consola (tests, CI y desarrollo)
-WHATSAPP_TRANSPORT=log
-
-# Proveedor de AI
-# Con ORDER_DRAFTER=rules el sistema funciona sin ANTHROPIC_API_KEY.
-ANTHROPIC_API_KEY=
-ORDER_DRAFTER=rules
-
-# Canal de simulación de mensajes entrantes
-SIMULATOR_ENABLED=true
-```
-
-#### `.env` y `.gitignore`
-
-**Estado real: `.gitignore` todavía no existe**, porque el proyecto no tiene código. Lo crea la tarea 1.1, y `create-next-app` lo genera ya con `.env*` incluido. La verificación de que efectivamente ignora los secretos es parte de la Entrega 3.
-
-Estas líneas deben estar presentes, y `.env.example` tiene que quedar explícitamente exceptuado o dejará de versionarse:
-
-```gitignore
-# Variables de entorno
-.env
-.env.*
-!.env.example
-```
-
-Comprobación que se ejecuta antes del primer commit con secretos reales:
+`.gitignore` ignora `.env` y `.env.*`, y se comprobó antes del primer commit de código:
 
 ```bash
-git check-ignore -v .env && echo "OK: .env está ignorado"
+git check-ignore -v .env   # .gitignore:2:.env	.env
 ```
+
+**Variables en Railway** (los valores no salen de Railway): `DATABASE_URL` como referencia a la del servicio PostgreSQL (`${{Postgres.DATABASE_URL}}`), `SESSION_SECRET` generado con `openssl rand -hex 32`, `SEED_PASSWORD` aleatoria, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ORDER_DRAFTER=llm`, `WHATSAPP_TRANSPORT=log` y `SIMULATOR_ENABLED=true`.
+
+**GitHub Secrets sigue vacío, como se diseñó.** El workflow fija en claro valores de prueba que no protegen nada (`ORDER_DRAFTER=rules`, una base efímera, un `SESSION_SECRET` de CI), así que una filtración del repositorio no compromete ninguna credencial.
 
 #### Si un secreto se filtra
 
@@ -685,7 +681,7 @@ Esa última fila es la menos obvia y la más importante: **la respuesta de un pr
 
 #### 6 · Gestión de secretos
 
-Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las diez variables, dónde vive cada una, el contenido de `.env.example` y la política de rotación ante filtración.
+Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las diez variables, dónde vive cada una, el contenido de `env.example` y la política de rotación ante filtración.
 
 **Confirmación:** ningún secreto está en el código. Todos se leen de variables de entorno; `.env.example` se versiona **sin un solo valor**; `.env` va en `.gitignore` con `!.env.example` exceptuado; y **GitHub Secrets no guarda ninguna credencial real**, porque el pipeline corre con `WHATSAPP_TRANSPORT=log` y `ORDER_DRAFTER=rules` y no hace llamadas externas. Una filtración del repositorio no compromete nada de producción.
 
@@ -715,7 +711,19 @@ Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las die
 
 ### 2.6 Tests
 
-> **Estrategia PREVISTA.** Describe qué se va a probar y con qué, no una suite ejecutada: hoy no existe código. **La ejecución real —suite en verde, cobertura, capturas del pipeline— llega en la Entrega 3.** Corresponde a las tareas 8.1 a 8.5 de `tasks.md`, con un presupuesto de 3 h.
+#### Suite implementada · 26 tests en verde
+
+| Nivel | Fichero | Qué verifica |
+|---|---|---|
+| Unitario | `tests/unit/pricing.test.ts` (7) | Importe por línea con redondeo half-up (1001 × 0,333 → 333; × 0,500 → 501; × 0,667 → 668), sin errores de coma flotante; cantidades válidas por unidad; formato CHF |
+| Unitario | `tests/unit/rules-drafter.test.ts` (7) | El ejemplo canónico de la spec; gramos y «medio kilo»; coma decimal; mención sin resolver que conserva `rawText`; **«el entrecot cuesta 0,10 CHF» no genera línea**; un saludo no genera pedido |
+| Integración | `tests/integration/confirm-order.test.ts` (8) | **C1** confirma, descuenta y registra el resumen · **C2** stock insuficiente: `409` con la línea, rollback completo · **C3** dos confirmaciones concurrentes descuentan una sola vez y envían un solo resumen · el `CHECK` rechaza stock negativo por SQL directo · valoración con precios de la base · segundo mensaje con borrador abierto · idempotencia por `providerMessageId` |
+| Integración | `tests/integration/authorization.test.ts` (3) | `401` en la confirmación **sin consultar la base** · `401` en el simulador sin crear mensajes · `404` con el simulador apagado |
+| E2E | `tests/e2e/order-flow.spec.ts` (1) | Login → simulador → borrador valorado (CHF 89,40) → detalle con la conversación → confirmación → existencias descontadas en la base y resumen visible |
+
+**Lo que el diseño de abajo preveía y esta suite no cubre**, por estar fuera del alcance entregado: webhook y firma HMAC, badge con polling, ajuste de líneas y de existencias, acuse automático y el E2E con ajuste de cantidad y `/dashboard`. Tampoco hay test del `LlmOrderDrafter` en CI, deliberadamente: la suite corre con `ORDER_DRAFTER=rules`. La AI se verificó a mano contra los mismos cuatro mensajes que el intérprete por reglas, incluido el intento de fijar el precio, y en el recorrido de producción de §1.3.
+
+El resto de esta sección es la estrategia de la Entrega 1, que sigue valiendo como plan para los incrementos pendientes.
 
 **Los criterios Gherkin de §5 son los casos de prueba.** No se inventan casos nuevos: cada escenario de una historia es un test, y si un escenario no tiene test, la trazabilidad del final lo deja a la vista.
 
@@ -762,7 +770,7 @@ Verifica en un solo recorrido: el `Order` aparece en `DRAFT` con sus líneas val
 
 Existe para comprobar que **las piezas están bien conectadas**, no para verificar reglas: las reglas ya están cubiertas más abajo en la pirámide, donde es más barato.
 
-#### Herramientas previstas
+#### Herramientas
 
 | Herramienta | Para qué | Por qué ésta |
 |---|---|---|
@@ -2317,3 +2325,16 @@ Sólo comodidad: se comprueba que hay al menos una línea y que ninguna está si
 
 `US-10` toca también el ajuste de líneas y la corrección de existencias, que llegan por tareas **6.3** y **6.4** y son tickets propios: modifican el borrador pero **no lo hacen avanzar**, así que no pertenecen a la confirmación. Del mismo modo, la parte de **7.2** que envía el acuse automático y el mensaje manual pertenece a `US-11` y `US-12`, no aquí — de la tarea 7.2 sólo entra el resumen posterior al commit.
 
+
+---
+
+## 7. Pull requests
+
+| PR | Rama | Contenido | Estado |
+|---|---|---|---|
+| [#1](https://github.com/fedewagner/SRS-Carnik/pull/1) | `feature-entrega1-FJW` | **Entrega 1 · Documentación técnica.** Producto, arquitectura, modelo de datos, API, historias y tickets, derivados de la especificación de `openspec/` | Mergeado |
+| [#2](https://github.com/fedewagner/SRS-Carnik/pull/2) | `coderabbit/…` | Propuesta automática de CodeRabbit. **No se incorpora** (ver abajo) | Abierto, sin mergear |
+| [#3](https://github.com/fedewagner/SRS-Carnik/pull/3) | `feature-entrega2-FJW` | **Entrega 2 · MVP ejecutable.** Esquema y migración, login, simulador, interpretación con AI y fallback, backoffice y confirmación transaccional, 26 tests, CI y despliegue en Railway. Un commit por historia | CI en verde |
+| #4 | `feature-entrega3-FJW` | **Entrega final · Documentación cerrada.** Este README con lo verificado, capturas de producción y `prompts.md` de la implementación | Este PR |
+
+**Por qué se revirtió una contribución de CodeRabbit.** Un commit del bot (`50b52a8`) entró en `main` con la Entrega 1 y ampliaba el alcance sin una decisión de producto detrás: un outbox con reconciliación de estados, un estado `ASSEMBLED` y un filtro de intención convertido en Must-have, que contradecía el análisis INVEST por el que `US-14` había salido del MVP (§5). Sumaba entre 4 y 6 horas a un plan que ya no tenía margen. Se revirtió en el PR #3, y con él `us-patron.md`, una historia de otro dominio que no pertenecía al proyecto.
