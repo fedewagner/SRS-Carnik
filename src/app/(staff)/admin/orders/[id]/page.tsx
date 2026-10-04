@@ -75,7 +75,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
           <ConfirmOrderButton orderId={order.id} hasLines={resolvedLines > 0} />
         ) : (
           <p className="text-sm text-green-800">
-            Confirmado el {order.confirmedAt?.toLocaleString("es-CH")} por {order.confirmedBy?.email}.
+            Confirmado el {order.confirmedAt?.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })} por {order.confirmedBy?.email}.
           </p>
         )}
       </div>
@@ -93,7 +93,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             >
               {m.body}
               <div className="mt-1 text-[10px] text-stone-500">
-                {m.createdAt.toLocaleString("es-CH")}
+                {m.createdAt.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })}
                 {m.direction === "OUTBOUND" && ` · ${m.status === "SENT" ? "enviado" : "falló"}`}
               </div>
             </li>

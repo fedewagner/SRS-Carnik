@@ -46,7 +46,7 @@ export default async function OrdersPage() {
                   <td className="px-4 py-2">{o._count.items}</td>
                   <td className="px-4 py-2">{formatChf(o.totalCents)}</td>
                   <td className="px-4 py-2"><StatusBadge status={o.status} /></td>
-                  <td className="px-4 py-2 text-stone-500">{o.createdAt.toLocaleString("es-CH")}</td>
+                  <td className="px-4 py-2 text-stone-500">{o.createdAt.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })}</td>
                 </tr>
               ))}
             </tbody>
