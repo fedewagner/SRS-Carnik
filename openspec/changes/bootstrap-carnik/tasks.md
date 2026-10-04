@@ -18,44 +18,44 @@
 
 ## 1. Esqueleto desplegado
 
-- [ ] 1.1 Andamiaje Next.js 15 (App Router, TypeScript estricto, Tailwind), redirección de `/` según sesión y cabeceras de seguridad en `next.config.ts`.
-- [ ] 1.2 Prisma y cliente compartido, `.env.example`, workflow de CI (lint, typecheck, build) y despliegue en Railway con PostgreSQL y `prisma migrate deploy` en el arranque.
+- [x] 1.1 Andamiaje Next.js 15 (App Router, TypeScript estricto, Tailwind), redirección de `/` según sesión y cabeceras de seguridad en `next.config.ts`.
+- [x] 1.2 Prisma y cliente compartido, `.env.example`, workflow de CI (lint, typecheck, build) y despliegue en Railway con PostgreSQL y `prisma migrate deploy` en el arranque.
 
 ## 2. Modelo de datos y seed
 
-- [ ] 2.1 Siete entidades de D2 con sus enums e índices, migración inicial con los dos `CHECK` añadidos a mano (`stockQuantity >= 0` y coherencia de los campos de confirmación).
-- [ ] 2.2 Seed idempotente: catálogo de carnicería (por peso y por pieza) y dos usuarios (`ADMIN`, `EMPLOYEE`) con contraseña hasheada.
+- [x] 2.1 Siete entidades de D2 con sus enums e índices, migración inicial con los dos `CHECK` añadidos a mano (`stockQuantity >= 0` y coherencia de los campos de confirmación).
+- [x] 2.2 Seed idempotente: catálogo de carnicería (por peso y por pieza) y dos usuarios (`ADMIN`, `EMPLOYEE`) con contraseña hasheada.
 
 ## 3. Autenticación y autorización
 
-- [ ] 3.1 Sesión `iron-session` (TTL 8 h, sin renovación), login y logout con argon2id, `requireRole` como primera línea de cada handler, server action y layout protegido.
+- [x] 3.1 Sesión `iron-session` (TTL 8 h, sin renovación), login y logout con argon2id, `requireRole` como primera línea de cada handler, server action y layout protegido.
 
 ## 4. Entrada por simulador
 
-- [ ] 4.1 `InboundMessage` e `ingestInboundMessage`: alta o reutilización de `Customer` y `Conversation`, persistencia del `Message`.
-- [ ] 4.2 `POST /api/simulator/messages` protegido por `requireRole` y `SIMULATOR_ENABLED`, y página `/simulator` que muestra el borrador resultante.
+- [x] 4.1 `InboundMessage` e `ingestInboundMessage`: alta o reutilización de `Customer` y `Conversation`, persistencia del `Message`.
+- [x] 4.2 `POST /api/simulator/messages` protegido por `requireRole` y `SIMULATOR_ENABLED`, y página `/simulator` que muestra el borrador resultante.
 
 ## 5. AI Order Intake
 
-- [ ] 5.1 Contrato `OrderDrafter` y `DraftSchema` (sin precios, totales ni disponibilidad).
-- [ ] 5.2 `RuleBasedOrderDrafter` determinista sobre alias del catálogo.
-- [ ] 5.3 `LlmOrderDrafter` con salida estructurada, timeout de 8 s y caída al determinista; selector `ORDER_DRAFTER`. **Primera tarea en caer si el día 1 se retrasa.**
-- [ ] 5.4 Precios y disponibilidad calculados en servidor y creación del `Order` en `DRAFT` con sus `OrderItem`, incluidas las líneas sin resolver.
+- [x] 5.1 Contrato `OrderDrafter` y `DraftSchema` (sin precios, totales ni disponibilidad).
+- [x] 5.2 `RuleBasedOrderDrafter` determinista sobre alias del catálogo.
+- [x] 5.3 `LlmOrderDrafter` con salida estructurada, timeout de 8 s y caída al determinista; selector `ORDER_DRAFTER`. **Primera tarea en caer si el día 1 se retrasa.**
+- [x] 5.4 Precios y disponibilidad calculados en servidor y creación del `Order` en `DRAFT` con sus `OrderItem`, incluidas las líneas sin resolver.
 
 ## 6. Backoffice de confirmación
 
-- [ ] 6.1 Listado de pedidos (`/admin/orders`) y detalle con líneas, avisos de disponibilidad, total y conversación.
-- [ ] 6.2 `confirmOrder` transaccional e idempotente (D10) expuesto en `POST /api/orders/[orderId]/confirm`, botón con sus estados, y resumen al cliente registrado como `Message` saliente después del commit con transporte `log` (D12).
+- [x] 6.1 Listado de pedidos (`/admin/orders`) y detalle con líneas, avisos de disponibilidad, total y conversación.
+- [x] 6.2 `confirmOrder` transaccional e idempotente (D10) expuesto en `POST /api/orders/[orderId]/confirm`, botón con sus estados, y resumen al cliente registrado como `Message` saliente después del commit con transporte `log` (D12).
 
 ## 7. Tests y CI completo
 
-- [ ] 7.1 Unitarios: precios y `RuleBasedOrderDrafter`.
-- [ ] 7.2 Integración contra PostgreSQL: confirmación con existencias suficientes e insuficientes (rollback), doble confirmación y acceso sin sesión.
-- [ ] 7.3 E2E con Playwright: simulador → borrador → confirmación → existencias descontadas y resumen registrado. CI con servicio PostgreSQL ejecutando todo.
+- [x] 7.1 Unitarios: precios y `RuleBasedOrderDrafter`.
+- [x] 7.2 Integración contra PostgreSQL: confirmación con existencias suficientes e insuficientes (rollback), doble confirmación y acceso sin sesión.
+- [x] 7.3 E2E con Playwright: simulador → borrador → confirmación → existencias descontadas y resumen registrado. CI con servicio PostgreSQL ejecutando todo.
 
 ## 8. Cierre
 
-- [ ] 8.1 `readme.md` con URL pública, alcance entregado frente a especificado, capturas e instrucciones; `prompts.md` actualizado.
+- [x] 8.1 `readme.md` con URL pública, alcance entregado frente a especificado, capturas e instrucciones; `prompts.md` actualizado.
 
 ## Fuera de esta entrega (decidido, no omitido)
 
