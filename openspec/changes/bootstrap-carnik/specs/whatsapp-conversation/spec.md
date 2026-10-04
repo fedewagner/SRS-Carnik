@@ -6,31 +6,9 @@ Mantiene la conversación con el cliente en los dos sentidos por el canal que ya
 
 ## ADDED Requirements
 
-### Requirement: Handshake de verificación del proveedor
-
-`GET /api/webhooks/whatsapp` SHALL validar `hub.mode=subscribe` y comparar `hub.verify_token` con el token compartido `META_VERIFY_TOKEN`. Con token válido y `hub.challenge` no vacío SHALL responder 200 `text/plain` con el challenge exacto. Token ausente o incorrecto SHALL devolver 403; con token válido, modo incorrecto o challenge ausente SHALL devolver 400. No SHALL persistir datos ni invocar AI. Esta verificación SHALL ser independiente de la firma HMAC del POST y SHALL NOT autorizar mensajes entrantes.
-
-#### Scenario: Handshake válido
-
-- **GIVEN** modo `subscribe`, token compartido correcto y challenge presente
-- **WHEN** el proveedor llama a `GET /api/webhooks/whatsapp`
-- **THEN** recibe 200 con el challenge exacto como texto plano
-
-#### Scenario: Token ausente o incorrecto (error)
-
-- **GIVEN** una petición GET sin token o con otro valor
-- **WHEN** se valida el handshake
-- **THEN** responde 403 sin reflejar el challenge ni escribir datos
-
-#### Scenario: Handshake incompleto (borde)
-
-- **GIVEN** token válido pero modo distinto de `subscribe` o challenge ausente/vacío
-- **WHEN** se valida el handshake
-- **THEN** responde 400 sin procesar ningún mensaje
-
 ### Requirement: Recepción autenticada de mensajes entrantes
 
-`POST /api/webhooks/whatsapp` SHALL aceptar mensajes entrantes únicamente cuando la petición esté firmada por el proveedor, y SHALL rechazar cualquier petición cuya firma no valide, sin persistir nada ni disparar procesamiento posterior.
+El sistema SHALL aceptar mensajes entrantes únicamente cuando la petición esté firmada por el proveedor, y SHALL rechazar cualquier petición cuya firma no valide, sin persistir nada ni disparar procesamiento posterior.
 
 La verificación SHALL calcularse sobre el cuerpo exacto recibido, antes de cualquier parseo o normalización, y SHALL usar comparación en tiempo constante.
 
@@ -66,7 +44,7 @@ El sistema SHALL procesar como mensaje únicamente los eventos entrantes de tipo
 - **GIVEN** el proveedor entrega un evento de tipo texto, correctamente firmado y sin adjuntos
 - **WHEN** el sistema aplica el filtro
 - **THEN** el evento se reconoce como mensaje y continúa hacia la ingesta
-- **AND** pasa al filtro de intención de `ai-order-intake`; sólo una intención de pedido habilita generación, mientras consultas, saludos e intención incierta se conservan sin `Order` ni acuse
+- **AND** queda disponible para generar una propuesta de pedido
 
 #### Scenario: Evento de estado de entrega
 
@@ -156,7 +134,7 @@ El sistema SHALL enviar al cliente tres tipos de mensaje saliente por el mismo c
 
 1. Un **acuse de recepción** automático cuando un mensaje entrante genera un pedido en borrador. El acuse SHALL confirmar únicamente la recepción y SHALL NOT comprometer disponibilidad, precios ni plazos.
 2. Un **mensaje manual** escrito por un usuario con rol `EMPLOYEE` o `ADMIN` desde el detalle del pedido.
-3. Un **resumen** con las líneas finales y el total al confirmarse el pedido, enviado una sola vez por pedido mediante el outbox persistido en la transacción de confirmación. La entrega y recuperación SHALL seguir D12: claim atómico, clave `order-summary:<orderId>`, ningún reenvío de `SENT` y reconciliación antes de reintentar un resultado `UNKNOWN`.
+3. Un **resumen** con las líneas finales y el total al confirmarse el pedido, enviado una sola vez por pedido.
 
 **Datos personales:** todo `Message` saliente SHALL registrar qué usuario lo originó, o si fue generado automáticamente. Un `Message` ya enviado SHALL ser inmutable y SHALL NOT poder editarse ni borrarse desde la interfaz.
 

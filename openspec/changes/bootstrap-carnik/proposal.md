@@ -12,9 +12,9 @@ Proyecto nuevo, sin código previo. Se introduce exactamente lo que sostiene el 
 
 - **Ingesta bidireccional de WhatsApp.** El webhook de Meta Cloud API y un simulador interno desembocan en la misma función de ingesta; el dominio nunca conoce al proveedor. El simulador es lo que permite que el test E2E corra sin red externa ni credenciales.
 - **Propuesta de pedido asistida por AI.** El texto libre del cliente se interpreta contra el catálogo y la disponibilidad vigente y produce un pedido en borrador. La AI propone; el servidor recalcula precios y disponibilidad contra la base. El modelo nunca escribe estado.
-- **Backoffice de confirmación rápido.** El empleado ve el borrador junto a la conversación, ajusta líneas y confirma. La confirmación es una única transacción que cambia el estado, descuenta existencias, registra quién confirmó y persiste el outbox del resumen en `Message`; el envío ocurre después del commit.
+- **Backoffice de confirmación rápido.** El empleado ve el borrador junto a la conversación, ajusta líneas y confirma. La confirmación es una única transacción que cambia el estado y descuenta existencias.
 - **Mensajería saliente por el mismo chat.** Acuse automático de recepción, mensaje manual del empleado cuando hace falta aclarar algo, y resumen al confirmar.
-- **Vista de armado**, que es la misma consulta del backoffice filtrada por pedidos confirmados pendientes de armado.
+- **Vista de armado**, que es la misma consulta del backoffice filtrada por pedidos confirmados.
 - **Infraestructura de entrega:** esquema Prisma sobre PostgreSQL, pipeline de CI con tests unitarios, de integración y un E2E, y despliegue en Railway con URL pública.
 
 ### Impacto visible para el usuario
@@ -28,7 +28,7 @@ Proyecto nuevo, sin código previo. Se introduce exactamente lo que sostiene el 
 Dos cláusulas del flujo E2E no aparecían en la lista de capacidades must-have. Resolución acordada, con el coste que evita cada una:
 
 - **Existencias sin capacidad propia.** `Product` lleva un campo de cantidad disponible, sembrado, ajustable únicamente desde la línea del pedido donde el empleado detecta la discrepancia — que es exactamente cuando un carnicero se entera de que el stock está mal. **Se evita** una entidad `StockItem`, una ruta `/admin/products` y un CRUD completo. Preserva las dos cláusulas del flujo: propuesta anclada en disponibilidad, y descuento atómico al confirmar.
-- **La pantalla del local no es una superficie nueva.** `/dashboard` reusa la consulta del backoffice filtrando por pedidos confirmados pendientes de armado; se marcan armados desde el detalle del backoffice. **Se evita** una capacidad, un spec y un layout propio.
+- **La pantalla del local no es una superficie nueva.** `/dashboard` reusa la consulta del backoffice filtrando por pedidos confirmados. **Se evita** una capacidad, un spec y un layout propio.
 
 ### Fuera de alcance (explícito)
 
@@ -97,9 +97,8 @@ El **cliente de WhatsApp no es un rol del sistema**: no tiene cuenta, no se aute
 
 | Operación | Condición sobre el recurso |
 |---|---|
-| Editar, añadir o eliminar una línea | El `Order` debe estar en estado `DRAFT`. Las líneas y condiciones de un pedido confirmado son inmutables; sólo puede completarse su armado. |
-| Confirmar un pedido | El `Order` debe estar en `DRAFT`, tener al menos una línea y todos sus productos resueltos, y **cada** línea debe tener existencias suficientes en el momento de confirmar, no cuando se generó el borrador. |
-| Completar el armado | Rol `EMPLOYEE` o `ADMIN`; `Order` confirmado y pendiente de armado, transición idempotente a `ASSEMBLED`. |
+| Editar, añadir o eliminar una línea | El `Order` debe estar en estado `DRAFT`. Un pedido confirmado es inmutable. |
+| Confirmar un pedido | El `Order` debe estar en `DRAFT`, y **cada** línea debe tener existencias suficientes en el momento de confirmar, no cuando se generó el borrador. |
 | Ajustar existencias de un producto | El `Product` debe estar activo, y la cantidad debe ser válida para su unidad de venta. |
 | Enviar un mensaje manual | La `Conversation` debe existir. Un `Message` ya enviado es inmutable para todos los roles. |
 | Modificar datos identificativos de un `Customer` | Rol `ADMIN` exclusivamente. |

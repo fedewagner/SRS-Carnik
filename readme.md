@@ -224,7 +224,7 @@ Elegir esto cuesta cosas, y son estas:
 1. **Escalado acoplado.** No se puede escalar la ingesta sin escalar también el backoffice y la pantalla del local. Una campaña que multiplique los mensajes obliga a sobredimensionar todo el proceso.
 2. **Sin aislamiento de fallos.** No hay mamparos: un bucle infinito o una fuga de memoria en cualquier parte tumba el webhook, el backoffice y el dashboard a la vez. En una arquitectura con servicios separados, el mostrador seguiría funcionando aunque la ingesta cayera.
 3. **La latencia del LLM está en el camino crítico del webhook.** La llamada a Anthropic ocurre dentro de la petición que Meta espera. Se mitiga con un timeout de 8 s y el respaldo determinista, pero **es una mitigación, no una solución**: la solución sería responder 200 al instante y redactar en background, y eso exige trabajo asíncrono que este diseño no tiene.
-4. **El resumen usa un outbox en `Message`.** Se persiste junto con la confirmación y se despacha después del commit. Sin worker, la recuperación se inicia desde el backoffice sobre la misma fila y clave por pedido. `FAILED` significa rechazo sin entrega; un resultado ambiguo queda `UNKNOWN` y requiere reconciliación, sin reenvío ciego (D12).
+4. **El envío saliente no se reintenta.** Sin cola no hay reintento automático: un fallo de red queda registrado como `FAILED` y visible para el empleado, que decide si reenvía a mano. El cliente puede quedarse sin su resumen aunque el pedido esté confirmado.
 5. **Sin caché.** Cada carga del listado y cada sondeo del indicador van a la base. A este volumen es irrelevante, pero significa que el suelo de latencia lo pone PostgreSQL.
 6. **Despliegue todo o nada.** No se puede publicar un arreglo del dashboard sin volver a desplegar el webhook. Cada despliegue arriesga la ingesta.
 7. **Acoplamiento a Railway y a Prisma.** Migrar a otro proveedor implica rehacer el pipeline y la gestión de migraciones. Es deuda aceptada a cambio de no gastar horas en abstraerse de una plataforma que quizá nunca se cambie.
@@ -569,15 +569,13 @@ sequenceDiagram
             V-->>N: 400 VALIDATION_ERROR
         else Entrada valida
             V->>H: datos tipados
-            H->>D: BEGIN y bloquear Order; validar lineas y productos (D10)
-            Note over H,D: Vacio o sin resolver: 409 sin cambiar estado<br/>Ya confirmado: 200 idempotente
             H->>D: UPDATE Order SET status=CONFIRMED<br/>WHERE id=? AND status=DRAFT
             alt El estado del recurso prohibe la accion
                 D-->>H: 0 filas afectadas
                 H-->>N: 409 ORDER_NOT_DRAFT
                 Note over H,D: Autorizacion por ESTADO, no por pertenencia:<br/>este sistema no tiene modelo de propiedad
             else Accion permitida
-                D-->>H: Stock, auditoria y outbox persistidos; COMMIT
+                D-->>H: 1 fila, la transaccion continua
                 H-->>N: 200 OrderConfirmed
             end
         end
@@ -594,7 +592,7 @@ sequenceDiagram
 
 **Credenciales:** `User.passwordHash` guarda **exclusivamente un hash argon2id** con sal por usuario. Nunca la contraseña en claro ni cifrado reversible: no existe ningún caso de uso que requiera recuperar el original. El hash se genera en `prisma/seed.ts` y se verifica en `src/app/login/actions.ts`.
 
-**Duración y renovación:** **8 horas**, aproximadamente un turno de mostrador, sin renovación deslizante; la expiración absoluta se fija al login y no se extiende al usar la aplicación. Suficiente para no reautenticarse a media mañana y corto para acotar el daño de una sesión robada.
+**Duración y renovación:** **8 horas**, aproximadamente un turno de mostrador, con renovación deslizante al usar la aplicación. Suficiente para no reautenticarse a media mañana y corto para acotar el daño de una sesión robada.
 
 **Cierre de sesión:** se borra la cookie y se emite una caducada. **Y aquí está la limitación honesta de haber elegido una sesión sin estado en servidor: no hay revocación.** Una cookie robada sigue siendo válida hasta que caduque, aunque el usuario cierre sesión en su navegador. Las dos mitigaciones son el TTL corto y **rotar `SESSION_SECRET` en Railway, que invalida todas las sesiones a la vez**. Con dos cuentas es un coste aceptable; con veinte, no lo sería.
 
@@ -727,7 +725,7 @@ Cubren la lógica de negocio de los módulos de `src/core/` y de `src/lib/`, inv
 
 | Módulo | Qué se prueba |
 |---|---|
-| `src/core/orders/pricing.ts` | `lineTotalCents` = `ROUND_HALF_UP(quantity × unitPriceCents)` con Decimal exacto, una vez por línea; `totalCents` suma líneas redondeadas. Casos: 1001 × 0,333 → 333; × 0,500 → 501; × 0,667 → 668; dos líneas de 501 → 1002; snapshot conservado al confirmar |
+| `src/core/orders/pricing.ts` | `lineTotalCents` = `quantity` × `unitPriceCents`; `totalCents` como suma; redondeo en enteros de céntimos |
 | `src/core/drafting/rules.ts` | `RuleBasedOrderDrafter`: reconocimiento de cantidad, unidad y alias; mención no resuelta que conserva `rawText` |
 | `src/core/drafting/schema.ts` | `DraftSchema` acepta una salida válida y **rechaza campos de precio o disponibilidad** si el modelo los incluye |
 | `src/core/drafting/index.ts` | Selección de intérprete y caída al respaldo ante error, timeout o esquema inválido |
@@ -815,10 +813,10 @@ erDiagram
     Conversation ||--o{ Message      : "agrupa"
     User         |o--o{ Message      : "redacta via sentByUserId"
     Customer     ||--o{ Order        : "realiza"
+    Conversation ||--o{ Order        : "origina"
     Message      |o--o| Order        : "da lugar a via sourceMessageId"
     User         |o--o{ Order        : "confirma via confirmedByUserId"
-    Order        ||--o{ OrderItem    : "borrador editable, confirmar exige al menos una"
-    Order        |o--o| Message      : "outbox via summaryOrderId"
+    Order        ||--|{ OrderItem    : "se compone de"
     Product      |o--o{ OrderItem    : "se resuelve a"
 
     User {
@@ -848,23 +846,20 @@ erDiagram
         MessageDirection direction "not null, enum(INBOUND, OUTBOUND)"
         MessageChannel channel "not null, enum(WHATSAPP, SIMULATOR)"
         String body "not null, DATO PERSONAL"
-        MessageStatus status "nullable, enum(PENDING, SENDING, SENT, FAILED, UNKNOWN)"
-        String summaryOrderId FK, UK "nullable, outbox unico del resumen"
+        MessageStatus status "nullable, enum(SENT, FAILED)"
     }
 
     Order {
         String id PK
         String reference UK "not null, visible en la pantalla del local"
         String customerId FK "not null"
+        String conversationId FK "not null, redundante, ver decision 5"
         String sourceMessageId FK, UK "not null, un Order por Message"
         String confirmedByUserId FK "nullable, se escribe al confirmar"
         OrderStatus status "not null, default DRAFT, enum(DRAFT, CONFIRMED)"
         DraftOrigin draftedBy "not null, enum(AI, FALLBACK)"
         Int totalCents "not null, default 0, calculado en servidor"
         DateTime confirmedAt "nullable, se escribe al confirmar"
-        FulfillmentStatus fulfillmentStatus "default PENDING, enum(PENDING, ASSEMBLED)"
-        DateTime assembledAt "nullable"
-        String assembledByUserId FK "nullable"
     }
 
     OrderItem {
@@ -872,9 +867,7 @@ erDiagram
         String orderId FK "not null"
         String productId FK "nullable, null si la linea no se resolvio"
         String rawText "not null, texto original del cliente"
-        ResolutionStatus resolutionStatus "RESOLVED o UNRESOLVED"
-        ProductUnit unit "nullable si no valida"
-        Decimal quantity "nullable si no valida, precision 10 escala 3"
+        Decimal quantity "not null, precision 10 escala 3"
         Int unitPriceCents "not null, copiado del Product al crear"
         Int lineTotalCents "not null, calculado en servidor"
         Boolean hasStockWarning "not null, default false"
@@ -937,8 +930,7 @@ Cada mensaje de la conversación, entrante o saliente.
 | `direction` | `MessageDirection` | not null | `INBOUND` o `OUTBOUND` |
 | `channel` | `MessageChannel` | not null | `WHATSAPP` o `SIMULATOR` |
 | `body` | String | not null | Contenido. Inmutable una vez escrito |
-| `status` | `MessageStatus` | nullable | Sólo para `OUTBOUND`: `PENDING`, `SENDING`, `SENT`, `FAILED` o `UNKNOWN`, según D12 |
-| `summaryOrderId` | String | FK → `Order`, UK, nullable | Outbox: único resumen por pedido, creado en la transacción de confirmación |
+| `status` | `MessageStatus` | nullable | Sólo para `OUTBOUND`: `SENT` o `FAILED` |
 
 #### `Order`
 Pedido, desde la propuesta hasta la confirmación.
@@ -948,14 +940,13 @@ Pedido, desde la propuesta hasta la confirmación.
 | `id` | String | PK, cuid | Identificador |
 | `reference` | String | UK, not null | Referencia corta legible. Es lo que se muestra en la pantalla del local |
 | `customerId` | String | FK → `Customer`, not null | Cliente |
+| `conversationId` | String | FK → `Conversation`, not null | Hilo de origen (ver decisión 5) |
 | `sourceMessageId` | String | FK → `Message`, UK, not null | Mensaje que lo originó. **El índice único impide un segundo pedido para el mismo mensaje** |
 | `confirmedByUserId` | String | FK → `User`, nullable | Quién confirmó. Vacío mientras está en `DRAFT` |
 | `status` | `OrderStatus` | not null, default `DRAFT` | `DRAFT` o `CONFIRMED` |
 | `draftedBy` | `DraftOrigin` | not null | `AI` o `FALLBACK`, según qué intérprete produjo la propuesta |
 | `totalCents` | Int | not null, default 0 | Suma de las líneas, en céntimos. Siempre recalculado en servidor |
 | `confirmedAt` | DateTime | nullable | Momento de la confirmación |
-| `fulfillmentStatus` | `FulfillmentStatus` | not null, default `PENDING` | Cola: sólo `CONFIRMED/PENDING`; completar armado desde backoffice cambia a `ASSEMBLED` |
-| `assembledAt` / `assembledByUserId` | DateTime / String | nullable / FK → `User`, nullable | Auditoría de armado; se fijan una sola vez |
 
 #### `OrderItem`
 Línea de pedido. Entidad asociativa entre `Order` y `Product`, con atributos propios.
@@ -966,11 +957,9 @@ Línea de pedido. Entidad asociativa entre `Order` y `Product`, con atributos pr
 | `orderId` | String | FK → `Order`, not null | Pedido al que pertenece. Borrado en cascada |
 | `productId` | String | FK → `Product`, nullable | **Vacío si la mención no se resolvió contra el catálogo** |
 | `rawText` | String | not null | Texto original del cliente para esta línea. Se conserva siempre |
-| `resolutionStatus` | `ResolutionStatus` | not null | `RESOLVED` exige producto/cantidad/unidad válidos; `UNRESOLVED` exige `productId=null` y conserva texto |
-| `unit` | `ProductUnit` | nullable | Unidad validada; null si inválida |
-| `quantity` | Decimal(10,3) | nullable | Kg positivos a 0,001 o piezas enteras positivas; null si inválida |
+| `quantity` | Decimal(10,3) | not null | Cantidad en la unidad del producto |
 | `unitPriceCents` | Int | not null | Precio unitario **copiado del `Product` al crear la línea** |
-| `lineTotalCents` | Int | not null | `ROUND_HALF_UP(quantity × unitPriceCents)` por línea; 0 si no resuelta |
+| `lineTotalCents` | Int | not null | `quantity` × `unitPriceCents`, calculado en servidor |
 | `hasStockWarning` | Boolean | not null, default false | La cantidad supera el `stockQuantity` disponible |
 
 #### `Product`
@@ -993,9 +982,7 @@ Catálogo con sus existencias. Se siembra; no hay CRUD en el MVP.
 | `UserRole` | `ADMIN`, `EMPLOYEE` | `User.role` |
 | `MessageDirection` | `INBOUND`, `OUTBOUND` | `Message.direction` |
 | `MessageChannel` | `WHATSAPP`, `SIMULATOR` | `Message.channel` |
-| `MessageStatus` | `PENDING`, `SENDING`, `SENT`, `FAILED`, `UNKNOWN` | `Message.status` |
-| `ResolutionStatus` | `RESOLVED`, `UNRESOLVED` | `OrderItem.resolutionStatus` |
-| `FulfillmentStatus` | `PENDING`, `ASSEMBLED` | `Order.fulfillmentStatus` |
+| `MessageStatus` | `SENT`, `FAILED` | `Message.status` |
 | `OrderStatus` | `DRAFT`, `CONFIRMED` | `Order.status` |
 | `DraftOrigin` | `AI`, `FALLBACK` | `Order.draftedBy` |
 | `ProductUnit` | `WEIGHT_KG`, `PIECE` | `Product.unit` |
@@ -1009,20 +996,20 @@ Sería una relación 1-a-1 estricta sin atributos propios. Separarla añadiría 
 *Trade-off:* se pierde el historial de movimientos de existencias, que una tabla aparte daría gratis. No lo pide ninguna historia, y `Order.confirmedAt` más `Order.confirmedByUserId` cubren la trazabilidad que sí importa.
 
 **2 · Dinero en `Int` de céntimos, cantidades en `Decimal(10,3)`**
-Ningún importe es coma flotante. Las cantidades usan decimal exacto con tres posiciones, suficiente para gramos. Cada línea se redondea una vez al céntimo más cercano con `ROUND_HALF_UP` (empates hacia arriba) antes de persistir/mostrar. El total suma líneas ya redondeadas, sin redondeo adicional. Dos líneas de 0,500 kg a 1001 céntimos/kg dan 501 + 501 = 1002 céntimos. Se rechaza desbordamiento de `Int`.
+Ningún importe es coma flotante. Las cantidades usan decimal exacto con tres posiciones, suficiente para gramos.
 *Trade-off:* hay que convertir en cada frontera de entrada y salida, y `Decimal` de Prisma no es un `number` de JavaScript, lo que obliga a operar con la librería. A cambio elimina por completo los errores de redondeo en un sistema que cobra por peso, donde un céntimo mal calculado es dinero real.
 
 **3 · `OrderItem.productId` es nullable, y `rawText` está siempre**
-Una mención que el intérprete no resuelve se persiste con `productId=null`, `resolutionStatus=UNRESOLVED` y texto original. Sus importes son 0 como marcador de pendiente de valoración; cantidad/unidad inválidas se guardan como null. Se conserva el resto de líneas y se muestra el total como incompleto; confirmar devuelve `409 UNRESOLVED_ORDER_ITEMS`.
+Una mención que el intérprete no resuelve se persiste igual, con `productId` vacío y el texto original conservado.
 *Trade-off:* toda consulta que recorra líneas tiene que contemplar el caso sin producto, y el `join` es externo. La alternativa —descartar la línea, o inventar un producto— sería peor: descartar pierde información que el empleado necesita, e inventar rompe el principio de que el intérprete no crea datos de catálogo.
 
 **4 · `unitPriceCents` se copia en la línea al crearla**
-La línea guarda el precio vigente al crearla o resolverla. Ajustar sólo cantidad conserva el snapshot; sustituir producto captura el precio nuevo. Confirmación y resumen conservan los mismos precios y totales mostrados aunque cambie después el catálogo.
+La línea guarda el precio vigente en el momento, no una referencia al precio actual del `Product`.
 *Trade-off:* duplica un dato y abre la puerta a que línea y catálogo discrepen si alguien cambia el precio. Es exactamente lo que se busca: **un pedido confirmado debe conservar el precio con el que se confirmó.** Sin la copia, subir el precio del entrecot reescribiría retroactivamente el total de todos los pedidos pasados.
 
-**5 · `Order` conserva `customerId` y `sourceMessageId`**
-La conversación se obtiene desde el mensaje de origen o la relación única del cliente; no se almacena `Order.conversationId`. Al crear el pedido se verifica que el mensaje pertenezca al mismo cliente.
-*Trade-off:* se conserva `customerId` para consultar pedidos sin dos joins y `sourceMessageId` único para impedir dos pedidos por mensaje, con una comprobación explícita de coherencia al crear.
+**5 · `Order` lleva tres claves foráneas transitivamente redundantes**
+`customerId`, `conversationId` y `sourceMessageId` son derivables entre sí: el mensaje pertenece a una conversación, y la conversación es 1-a-1 con el cliente.
+*Trade-off:* denormalización deliberada para que el listado del backoffice no necesite dos `join` por fila. `sourceMessageId` con índice único, además, **convierte la idempotencia de `US-01` en una garantía estructural** en vez de una comprobación procedimental. **`conversationId` es el eslabón que sobra**: con `Conversation` 1-a-1 con `Customer`, se alcanza en un solo salto desde `customerId`. Recomiendo eliminarlo; lo dejo marcado en el diagrama en lugar de quitarlo por mi cuenta porque `design.md` lo lista.
 
 ### Seguridad del modelo
 
@@ -1092,19 +1079,19 @@ Las dos consecuencias, dichas en voz alta:
 | `Order` | `US-04a`, `US-04b`, `US-05`, `US-07`, `US-08`, `US-10`, `US-13` |
 | `OrderItem` | `US-04a`, `US-04b`, `US-05`, `US-08`, `US-10` |
 
-**Cada escritura de las historias tiene dónde ir.** Recorrido completo: `US-01` escribe `Customer`, `Conversation` y `Message`; `US-02` escribe `Message` con `channel` `SIMULATOR`; `US-03` sólo lee, contando por `conversationId` y `createdAt`; `US-04a`/`US-04b` escriben `Order` y `OrderItem`, incluido `draftedBy`; `US-05` escribe `unitPriceCents`, `lineTotalCents`, `totalCents` y `hasStockWarning`; `US-06` sólo lee `User`; `US-07` sólo lee; `US-08` escribe y borra `OrderItem`; `US-09` escribe `Product.stockQuantity`; `US-10` escribe `Order.status`, `confirmedAt`, `confirmedByUserId` y decrementa `Product.stockQuantity`; `US-11` y `US-12` escriben `Message` con `direction` `OUTBOUND` y su `status`; `US-13` lee la cola `CONFIRMED/PENDING`; completar armado desde backoffice escribe `fulfillmentStatus`, `assembledAt` y `assembledByUserId`.
+**Cada escritura de las historias tiene dónde ir.** Recorrido completo: `US-01` escribe `Customer`, `Conversation` y `Message`; `US-02` escribe `Message` con `channel` `SIMULATOR`; `US-03` sólo lee, contando por `conversationId` y `createdAt`; `US-04a`/`US-04b` escriben `Order` y `OrderItem`, incluido `draftedBy`; `US-05` escribe `unitPriceCents`, `lineTotalCents`, `totalCents` y `hasStockWarning`; `US-06` sólo lee `User`; `US-07` sólo lee; `US-08` escribe y borra `OrderItem`; `US-09` escribe `Product.stockQuantity`; `US-10` escribe `Order.status`, `confirmedAt`, `confirmedByUserId` y decrementa `Product.stockQuantity`; `US-11` y `US-12` escriben `Message` con `direction` `OUTBOUND` y su `status`; `US-13` sólo lee.
 
 **Dos huecos que hay que resolver al implementar**, ninguno exige cambiar el esquema:
 
 - **`US-01`, escenario del adjunto:** el spec dice que se deja constancia del mensaje «sin su contenido», pero `Message.body` es `not null`. Se resuelve escribiendo un marcador generado por el sistema en lugar de dejarlo vacío, de modo que un adjunto rechazado sea distinguible de un mensaje vacío. La alternativa —hacer `body` nullable— introduce un estado ambiguo en la tabla más consultada del sistema.
 - **`US-13`, nombre en la pantalla del local:** el spec pide «el nombre de pila», pero `Customer.profileName` es el nombre de perfil de WhatsApp, que puede ser un nombre completo o un apodo. Se recorta en la proyección de la consulta, no en la vista.
 
-**Los nombres coinciden con §1 y §5.** Las siete entidades, sus atributos y sus enums son los de `design.md`; no se ha introducido ningún término nuevo ni traducido ninguno.
+**Los nombres coinciden con §1 y §5.** Las siete entidades, sus atributos y los siete enums son exactamente los de `design.md`; no se ha introducido ningún término nuevo ni traducido ninguno.
 
 ---
 ## 4. Especificación de la API
 
-Tres rutas para las operaciones de entrada y confirmación, incluido el handshake GET del webhook. El polling de pendientes se documenta en D13 y la tarea 6.1.
+Tres endpoints. Son **las tres únicas fronteras HTTP reales del sistema**: dos entradas y el acto irreversible.
 
 > **Por qué el backoffice no aparece aquí.** Las páginas de `/admin` son Server Components que consultan la base a través de `src/core/orders/queries.ts`: entre la interfaz y el dominio hay una llamada de función, no una petición HTTP. Un `GET /api/orders/{orderId}` sólo existiría para que algo externo lo consumiera, y no hay nada externo. La **confirmación** sí es un route handler —única mutación del backoffice que no es server action— porque tiene contrato publicado y porque el test E2E necesita invocarla dos veces en paralelo para verificar la idempotencia. Recogido en `design.md` D6.
 
@@ -1140,43 +1127,6 @@ security:
 
 paths:
   /api/webhooks/whatsapp:
-    get:
-      operationId: verifyWhatsAppWebhook
-      summary: Verifica el alta del webhook mediante token compartido
-      security: []
-      description: |
-        Compara hub.verify_token con META_VERIFY_TOKEN, independientemente
-        de la firma HMAC del POST. No persiste datos ni procesa mensajes.
-        Token ausente/incorrecto tiene prioridad y devuelve 403.
-      parameters:
-        - in: query
-          name: hub.mode
-          required: true
-          schema:
-            type: string
-            enum: [subscribe]
-        - in: query
-          name: hub.verify_token
-          required: true
-          schema:
-            type: string
-        - in: query
-          name: hub.challenge
-          required: true
-          schema:
-            type: string
-            minLength: 1
-      responses:
-        '200':
-          description: Challenge exacto recibido
-          content:
-            text/plain:
-              schema:
-                type: string
-        '400':
-          description: Token válido pero modo o challenge inválido/ausente
-        '403':
-          description: Token ausente o incorrecto; no refleja el challenge
     post:
       operationId: ingestInboundMessage
       summary: Recibe un evento entrante de WhatsApp
@@ -1293,11 +1243,8 @@ paths:
       summary: Confirma un pedido y descuenta las existencias
       description: |
         Cambia el estado a `CONFIRMED` y descuenta la cantidad de cada línea
-        del `stockQuantity` de su producto, en una única transacción con
-        auditoría y outbox del resumen. Antes de cambiar estado exige al menos
-        una línea y productos resueltos con cantidades/unidades válidas.
-        Conserva snapshots de precio y el total entero de líneas redondeadas.
-        La suficiencia de existencias se comprueba en el momento de confirmar,
+        del `stockQuantity` de su producto, en una única transacción. La
+        suficiencia de existencias se comprueba en el momento de confirmar,
         no cuando se generó el borrador.
 
         **Es idempotente:** confirmar dos veces devuelve 200 con el mismo
@@ -1308,10 +1255,8 @@ paths:
         El guardia optimista que se llegó a considerar quedó fuera del MVP;
         su ausencia está registrada como riesgo conocido en §2.5.
 
-        El resumen persistido en Message se despacha después del commit, con
-        summaryOrderId único y clave order-summary:<orderId>. La respuesta
-        expone su estado actual, incluido PENDING o UNKNOWN. Un fallo externo
-        no revierte la venta; la recuperación sigue D12 sin envíos duplicados.
+        El resumen al cliente se envía después de que la transacción
+        confirme. Un fallo de envío no revierte la venta.
       security:
         - sessionCookie: []
       parameters:
@@ -1347,10 +1292,8 @@ paths:
           description: |
             Caso de negocio. `INSUFFICIENT_STOCK` cuando alguna línea supera
             las existencias actuales; `ORDER_NOT_DRAFT` cuando el pedido está
-            en un estado que no admite confirmación; `EMPTY_ORDER` cuando no
-            tiene líneas; `UNRESOLVED_ORDER_ITEMS` cuando hay líneas sin resolver,
-            productos ausentes o cantidad/unidad inválidas. La transacción revierte
-            entera: ni estado, existencias, auditoría ni outbox cambian.
+            en un estado que no admite confirmación. La transacción revierte
+            entera: ni el estado ni las existencias cambian.
           content:
             application/json:
               schema:
@@ -1396,7 +1339,7 @@ components:
       enum: [AI, FALLBACK]
     MessageStatus:
       type: string
-      enum: [PENDING, SENDING, SENT, FAILED, UNKNOWN]
+      enum: [SENT, FAILED]
     ProductUnit:
       type: string
       enum: [WEIGHT_KG, PIECE]
@@ -1441,15 +1384,9 @@ components:
       properties:
         code:
           type: string
-          enum: [INSUFFICIENT_STOCK, ORDER_NOT_DRAFT, EMPTY_ORDER, UNRESOLVED_ORDER_ITEMS]
+          enum: [INSUFFICIENT_STOCK, ORDER_NOT_DRAFT]
         message:
           type: string
-        orderItemIds:
-          type: array
-          description: Obligatorio con UNRESOLVED_ORDER_ITEMS; identifica las líneas inválidas
-          minItems: 1
-          items:
-            type: string
         lines:
           type: array
           description: Presente sólo con INSUFFICIENT_STOCK
@@ -1485,7 +1422,7 @@ components:
 
     OrderItemView:
       type: object
-      required: [id, product, rawText, resolutionStatus, unit, quantity, unitPriceCents, lineTotalCents, hasStockWarning]
+      required: [id, rawText, quantity, unitPriceCents, lineTotalCents, hasStockWarning]
       properties:
         id:
           type: string
@@ -1497,26 +1434,16 @@ components:
         rawText:
           type: string
           description: Texto original del cliente para esta línea
-        resolutionStatus:
-          type: string
-          enum: [RESOLVED, UNRESOLVED]
-        unit:
-          type: string
-          nullable: true
-          enum: [WEIGHT_KG, PIECE, null]
         quantity:
           type: string
-          nullable: true
-          description: Decimal(10,3) como cadena; null si inválida en línea UNRESOLVED
+          description: Decimal(10,3) serializado como cadena
           example: '1.500'
         unitPriceCents:
           type: integer
           format: int32
-          description: Snapshot al crear/resolver; 0 si UNRESOLVED
         lineTotalCents:
           type: integer
           format: int32
-          description: ROUND_HALF_UP(quantity × unitPriceCents) por línea; 0 si UNRESOLVED
         hasStockWarning:
           type: boolean
         availableQuantity:
@@ -1543,7 +1470,6 @@ components:
         totalCents:
           type: integer
           format: int32
-          description: Suma de lineTotalCents ya redondeados; subtotal incompleto si quedan líneas UNRESOLVED
         currency:
           type: string
           enum: [CHF]
@@ -1594,7 +1520,6 @@ components:
         totalCents:
           type: integer
           format: int32
-          description: Suma de lineTotalCents ya redondeados; subtotal incompleto si quedan líneas UNRESOLVED
         confirmedAt:
           type: string
           format: date-time
@@ -1605,7 +1530,7 @@ components:
           description: true si la petición fue un reintento y no tuvo efectos
         summaryMessage:
           type: object
-          description: Estado actual del outbox del resumen; recuperación según D12
+          description: Resultado del envío del resumen al cliente
           required: [status]
           properties:
             status:
@@ -1779,8 +1704,6 @@ El día que haya más de una carnicería esto cambia: entonces «existe pero es 
         "id": "clx8k2m4p0002qz7h5e6f7g8h",
         "product": { "id": "clx8p1", "slug": "entrecot", "name": "Entrecot", "unit": "WEIGHT_KG" },
         "rawText": "2 kg de entrecot",
-        "resolutionStatus": "RESOLVED",
-        "unit": "WEIGHT_KG",
         "quantity": "2.000",
         "unitPriceCents": 3900,
         "lineTotalCents": 7800,
@@ -1791,8 +1714,6 @@ El día que haya más de una carnicería esto cambia: entonces «existe pero es 
         "id": "clx8k2m4p0003qz7h9i0j1k2l",
         "product": { "id": "clx8p2", "slug": "salchicha-lyoner", "name": "Salchicha Lyoner", "unit": "PIECE" },
         "rawText": "6 salchichas",
-        "resolutionStatus": "RESOLVED",
-        "unit": "PIECE",
         "quantity": "6.000",
         "unitPriceCents": 190,
         "lineTotalCents": 1140,
@@ -1806,14 +1727,14 @@ El día que haya más de una carnicería esto cambia: entonces «existe pero es 
 
 #### 3 · Confirmación
 
-`POST /api/orders/clx8k2m4p0001qz7h3f9a2b1c/confirm` — sin cuerpo. Tras ajustar el entrecot a 1,500 kg, se conserva el snapshot: 5850 + 1140 = **6990** céntimos.
+`POST /api/orders/clx8k2m4p0001qz7h3f9a2b1c/confirm` — sin cuerpo.
 
 ```json
 {
   "id": "clx8k2m4p0001qz7h3f9a2b1c",
   "reference": "K2M4P0",
   "status": "CONFIRMED",
-  "totalCents": 6990,
+  "totalCents": 7290,
   "confirmedAt": "2026-08-01T08:24:11.000Z",
   "confirmedByUserId": "clx8u1",
   "alreadyConfirmed": false,
@@ -1838,34 +1759,6 @@ Y el caso de negocio, si alguien vendió el entrecot en el mostrador entretanto:
 }
 ```
 
-#### 4 · Redondeo por línea y conflictos de confirmación
-
-Fragmento de valoración en céntimos enteros, con dos líneas distintas del mismo producto a 1001 céntimos/kg (snapshot):
-
-```json
-{
-  "items": [
-    { "quantity": "0.500", "unitPriceCents": 1001, "lineTotalCents": 501 },
-    { "quantity": "0.500", "unitPriceCents": 1001, "lineTotalCents": 501 }
-  ],
-  "totalCents": 1002
-}
-```
-
-Respuestas `409`, anteriores a cualquier cambio de estado o stock:
-
-```json
-{ "code": "EMPTY_ORDER", "message": "El pedido debe tener al menos una línea" }
-```
-
-```json
-{
-  "code": "UNRESOLVED_ORDER_ITEMS",
-  "message": "Resuelve o elimina las líneas pendientes antes de confirmar",
-  "orderItemIds": ["clx8item1"]
-}
-```
-
 ### Diagrama de secuencia · confirmación del pedido
 
 ```mermaid
@@ -1887,20 +1780,16 @@ sequenceDiagram
         G-->>N: 400 VALIDATION_ERROR
     else Sesion y parametros validos
         G->>D: BEGIN transaccion
-        D->>D: Bloquear Order y leer estado, lineas y productos
+        D->>D: UPDATE Order SET status=CONFIRMED<br/>WHERE id=? AND status=DRAFT
 
-        alt El Order ya estaba CONFIRMED
+        alt Afecta 0 filas y el Order ya estaba CONFIRMED
             D-->>A: ROLLBACK, sin efectos
             A-->>N: 200 respuesta idempotente
             Note over A,W: No se descuenta stock ni se<br/>envia un segundo resumen
-        else El Order no existe
+        else Afecta 0 filas y el Order no existe
             D-->>A: ROLLBACK
             A-->>N: 404 ORDER_NOT_FOUND
-        else Sin lineas o con productos/cantidades sin resolver
-            D-->>A: ROLLBACK, sin escrituras
-            A-->>N: 409 EMPTY_ORDER o UNRESOLVED_ORDER_ITEMS
-        else Borrador con lineas validas
-            D->>D: UPDATE Order estado, usuario y fecha
+        else Afecta 1 fila
             D->>D: UPDATE Product SET stockQuantity -= q<br/>WHERE id=? AND stockQuantity >= q
 
             alt Alguna linea sin existencias suficientes
@@ -1908,11 +1797,8 @@ sequenceDiagram
                 A-->>N: 409 INSUFFICIENT_STOCK
                 Note over D: Ni el estado ni el stock cambian
             else Todas las lineas cubiertas
-                D->>D: INSERT Message PENDING con summaryOrderId unico
                 D-->>A: COMMIT
-                A->>D: Claim atomico del outbox PENDING a SENDING
-                A->>W: Envia resumen persistido con clave estable
-                A->>D: Registrar SENT, FAILED o UNKNOWN
+                A->>W: Envia el resumen al cliente
                 Note over A,W: Fuera de la transaccion: un fallo<br/>de red no revierte la venta
                 A-->>N: 200 OrderConfirmed
             end
@@ -1922,7 +1808,7 @@ sequenceDiagram
 
 ### Por qué estos tres
 
-Son las tres operaciones de escritura HTTP documentadas: **el mensaje entra desde el proveedor, entra desde el simulador, y la decisión del empleado se ejecuta con efectos irreversibles sobre las existencias.** Todo lo demás del backoffice —leer el detalle, ajustar una línea, corregir el stock, escribir al cliente— ocurre dentro del proceso, como Server Components y server actions, sin frontera HTTP que documentar. Los dos que sí son endpoints y quedaron fuera, `GET /api/orders/pending-count` y la cola de armado, sólo leen: no hacen avanzar el flujo.
+Son los tres únicos puntos donde una petición HTTP atraviesa el límite del sistema: **el mensaje entra desde el proveedor, entra desde el simulador, y la decisión del empleado se ejecuta con efectos irreversibles sobre las existencias.** Todo lo demás del backoffice —leer el detalle, ajustar una línea, corregir el stock, escribir al cliente— ocurre dentro del proceso, como Server Components y server actions, sin frontera HTTP que documentar. Los dos que sí son endpoints y quedaron fuera, `GET /api/orders/pending-count` y la cola de armado, sólo leen: no hacen avanzar el flujo.
 
 ---
 
@@ -2015,7 +1901,7 @@ Escenario 4: Respuesta tardía del proveedor de AI (edge case)
 > **Alcance de la ficha.** Esta historia cubre además el listado de pendientes y su indicador, no sólo el detalle: falla la S de INVEST precisamente por eso, y se dejó sin dividir a propósito. El criterio de aceptación de las dos interacciones es lo que la define.
 
 **Descripción**
-El backoffice muestra la lista de `Order` en estado `DRAFT` con un indicador que se actualiza solo. Al abrir uno, todo lo necesario para decidir está en una sola pantalla: los `OrderItem` con su `hasStockWarning` y `resolutionStatus`, el `totalCents` y la `Conversation` que originó el pedido. Si no hace falta cambiar nada, se confirma desde ahí. El límite de dos interacciones no es una aspiración de diseño: es la traducción verificable de que quien usa esto lo hace con las manos ocupadas.
+El backoffice muestra la lista de `Order` en estado `DRAFT` con un indicador que se actualiza solo. Al abrir uno, todo lo necesario para decidir está en una sola pantalla: los `OrderItem` con su `hasStockWarning`, el `totalCents` y la `Conversation` que originó el pedido. Si no hace falta cambiar nada, se confirma desde ahí. El límite de dos interacciones no es una aspiración de diseño: es la traducción verificable de que quien usa esto lo hace con las manos ocupadas.
 
 **Criterios de aceptación**
 
@@ -2080,7 +1966,7 @@ Escenario 4: Dos empleados sobre la misma lista (edge case)
 **para** no quedarme en silencio preguntándome si alguien lo leyó: acuse en menos de un minuto desde que escribo, y resumen con el detalle y el `totalCents` en cuanto el mostrador confirma.
 
 **Descripción**
-Dos `Message` con `direction` `OUTBOUND`, en dos momentos distintos. El acuse sale en cuanto la propuesta queda registrada y dice sólo que el pedido se recibió: no promete disponibilidad, ni precios, ni plazos, porque nada de eso está decidido todavía. El resumen sale al confirmar y refleja los `OrderItem` finales, con los ajustes que haya hecho el empleado, y el `totalCents`. Cada `Order` tiene un único resumen persistido mediante el outbox de D12; la entrega incierta requiere reconciliación. Es el paso que cierra el bucle y el que convierte el sistema en algo que el cliente percibe.
+Dos `Message` con `direction` `OUTBOUND`, en dos momentos distintos. El acuse sale en cuanto la propuesta queda registrada y dice sólo que el pedido se recibió: no promete disponibilidad, ni precios, ni plazos, porque nada de eso está decidido todavía. El resumen sale al confirmar y refleja los `OrderItem` finales, con los ajustes que haya hecho el empleado, y el `totalCents`. Cada `Order` recibe un único resumen. Es el paso que cierra el bucle y el que convierte el sistema en algo que el cliente percibe.
 
 **Criterios de aceptación**
 
@@ -2205,11 +2091,6 @@ enum OrderStatus {
   CONFIRMED
 }
 
-enum FulfillmentStatus {
-  PENDING
-  ASSEMBLED
-}
-
 enum ProductUnit {
   WEIGHT_KG
   PIECE
@@ -2232,18 +2113,15 @@ model Order {
   id                String      @id @default(cuid())
   reference         String      @unique
   customerId        String
+  conversationId    String
   sourceMessageId   String      @unique
   confirmedByUserId String?
   status            OrderStatus @default(DRAFT)
   draftedBy         DraftOrigin
   totalCents        Int         @default(0)
   confirmedAt       DateTime?
-  fulfillmentStatus FulfillmentStatus @default(PENDING)
-  assembledAt       DateTime?
-  assembledByUserId String?
-  assembledBy       User?       @relation("OrderAssembler", fields: [assembledByUserId], references: [id])
-  summaryMessage    Message?    @relation("OrderSummary")
   customer          Customer    @relation(fields: [customerId], references: [id])
+  conversation      Conversation @relation(fields: [conversationId], references: [id])
   sourceMessage     Message     @relation(fields: [sourceMessageId], references: [id])
   confirmedBy       User?       @relation(fields: [confirmedByUserId], references: [id])
   items             OrderItem[]
@@ -2314,7 +2192,7 @@ ALTER TABLE "Order"
 
 **Por qué es necesario.** Es la operación que convierte una propuesta en un compromiso. Si el cambio de estado y el descuento no ocurren juntos, el sistema puede quedar con un pedido confirmado y existencias intactas —o al revés—, y la carnicería pierde la confianza en el dato del stock, que es la razón por la que el producto existe. Además, dos empleados pueden confirmar a la vez y un doble clic es rutina en una pantalla táctil con guantes.
 
-**Detalle técnico.** `confirmOrder` sigue D10: bloquea el pedido (igual que las ediciones), valida primero líneas y productos, y luego ejecuta los `updateMany` condicionales dentro de una transacción de Prisma con auditoría y outbox. El primero, sobre `Order` con `WHERE id = ? AND status = 'DRAFT'`, da la idempotencia gratis: cero filas afectadas significa que ya estaba confirmado. El segundo, por línea, sobre `Product` con `WHERE id = ? AND stockQuantity >= ?`, fusiona comprobación y escritura en una sola operación atómica y elimina la ventana de carrera de un `SELECT` previo. Se crea el `Message` del resumen con `summaryOrderId` único en la transacción; el envío ocurre **después** del commit según D12.
+**Detalle técnico.** `confirmOrder` ejecuta dos `updateMany` condicionales dentro de una transacción de Prisma. El primero, sobre `Order` con `WHERE id = ? AND status = 'DRAFT'`, da la idempotencia gratis: cero filas afectadas significa que ya estaba confirmado. El segundo, por línea, sobre `Product` con `WHERE id = ? AND stockQuantity >= ?`, fusiona comprobación y escritura en una sola operación atómica y elimina la ventana de carrera de un `SELECT` previo. El envío del resumen ocurre **después** del commit.
 
 #### Contrato
 
@@ -2338,13 +2216,11 @@ La operación **no lleva cuerpo**: no necesita parámetros. El guardia optimista
 | `orderId` fuera de patrón | `400` | `ValidationError` con `fields[]` |
 | Pedido inexistente | `404` | `Error` |
 | Pedido en un estado que no admite confirmación | `409` | `ConfirmConflict` con `code: ORDER_NOT_DRAFT` |
-| Pedido sin líneas | `409` | `ConfirmConflict` con `code: EMPTY_ORDER` |
-| Línea sin resolver, producto ausente o cantidad/unidad inválida | `409` | `ConfirmConflict` con `code: UNRESOLVED_ORDER_ITEMS` y `orderItemIds` |
 | Alguna línea supera las existencias actuales | `409` | `ConfirmConflict` con `code: INSUFFICIENT_STOCK` y `lines[]` con `requested` y `available` |
 | Confirmación correcta | `200` | `OrderConfirmed` con `alreadyConfirmed: false` |
 | Segunda confirmación del mismo pedido | `200` | `OrderConfirmed` con `alreadyConfirmed: true`, **sin efectos** |
 
-- **Envío del resumen:** outbox persistido en la transacción, despachado tras commit con claim atómico y clave estable por pedido. Rechazo sin entrega: `FAILED`; resultado incierto: `UNKNOWN`, sin reenvío antes de reconciliar. **No revierte la venta**; `summaryMessage.status` refleja el estado persistido.
+- **Envío del resumen:** tras el commit, nunca dentro de la transacción. Un fallo se registra como `Message.status = FAILED` y **no revierte la venta**; la respuesta lo refleja en `summaryMessage.status`.
 
 #### Criterios de aceptación técnicos
 
@@ -2354,10 +2230,7 @@ La operación **no lleva cuerpo**: no necesita parámetros. El guardia optimista
 4. Dos llamadas **concurrentes** al mismo pedido: exactamente una descuenta existencias.
 5. Sin cookie de sesión: `401`, y con un `orderId` inexistente la respuesta es **idéntica** a la de uno existente.
 6. Todas las respuestas validan contra su `components.schemas` de §4.
-7. Rechazo explícito del transporte deja el pedido confirmado, stock descontado y `summaryMessage.status = FAILED`; timeout ambiguo deja `UNKNOWN`. Recuperación y envíos concurrentes no duplican el resumen.
-8. Pedido sin líneas devuelve `409 EMPTY_ORDER`; línea sin resolver, producto nulo/ausente o cantidad/unidad inválida devuelve `409 UNRESOLVED_ORDER_ITEMS`; ambos sin cambiar estado, stock, auditoría ni outbox.
-9. Caída después del commit deja un único outbox recuperable; fallo de stock tras un primer descuento revierte todos los cambios.
-10. Cambio de precio del catálogo entre borrador y confirmación conserva snapshot, total mostrado y resumen; cubrir los casos de redondeo de D3.
+7. Un fallo forzado del transporte deja el `Order` en `CONFIRMED` con `stockQuantity` descontado y `summaryMessage.status = FAILED`.
 
 #### Archivos
 
@@ -2401,12 +2274,11 @@ La operación **no lleva cuerpo**: no necesita parámetros. El guardia optimista
 | **Inicial** | Botón activo, con el total y el número de líneas | El empleado confirma lo que ve, no una abstracción |
 | **Carga** | Botón deshabilitado con indicador; el resto del formulario bloqueado | Impide el doble envío en el cliente. La idempotencia del servidor es la garantía real, no ésta |
 | **Error `409 INSUFFICIENT_STOCK`** | Aviso **sobre la línea afectada** con lo pedido y lo disponible, más acceso directo a corregir existencias o ajustar la cantidad | Deja al empleado en el sitio donde puede resolverlo |
-| **Error `409 EMPTY_ORDER` / `UNRESOLVED_ORDER_ITEMS`** | Pedir añadir o resolver las líneas afectadas antes de confirmar | El servidor no cambia estado ni stock |
 | **Error `409 ORDER_NOT_DRAFT`** | «Este pedido ya no admite confirmación», con recarga del detalle | Otra persona lo confirmó entretanto: la solución es mirar de nuevo, no corregir |
 | **Error `401`** | Redirección a `/login` conservando el destino | La sesión caducó a media revisión |
 | **Error de red o `5xx`** | Mensaje reintentable, sin perder los ajustes en pantalla | Reintentar es seguro: el endpoint es idempotente |
 | **Éxito** | Estado confirmado, botón sustituido por el sello con hora y usuario; aviso aparte si `summaryMessage.status` es `FAILED` | El envío al cliente puede fallar sin que la venta lo haga |
-| **Vacío** | Un `Order` sin líneas muestra el botón deshabilitado y explica por qué | La API también rechaza con `409 EMPTY_ORDER` |
+| **Vacío** | Un `Order` sin líneas muestra el botón deshabilitado y explica por qué | No debería ocurrir por el invariante `Order ||--|{ OrderItem`, pero la interfaz no asume invariantes |
 | **Ya confirmado** | Sin botón; banner de sólo lectura | La edición está prohibida por estado |
 
 #### Validación en cliente

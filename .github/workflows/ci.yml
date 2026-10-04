@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: carnik
+          POSTGRES_PASSWORD: carnik
+          POSTGRES_DB: carnik_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U carnik"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Valores de CI, no secretos: base efímera, intérprete determinista y transporte en log.
+    env:
+      DATABASE_URL: postgresql://carnik:carnik@localhost:5432/carnik_test
+      SESSION_SECRET: ci-only-secret-at-least-32-characters-long
+      ORDER_DRAFTER: rules
+      WHATSAPP_TRANSPORT: log
+      SIMULATOR_ENABLED: "true"
+      SEED_PASSWORD: carnik-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Auditoría de dependencias de producción
+        run: npm audit --omit=dev --audit-level=high
+
+      - run: npm run lint
+      - run: npm run typecheck
+
+      - name: Tests unitarios y de integración
+        run: npm test
+
+      - run: npm run build
+
+      - name: Navegador para el E2E
+        run: npx playwright install --with-deps chromium
+
+      - name: Test E2E
+        run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

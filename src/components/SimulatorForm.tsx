@@ -1,0 +1,111 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+
+type DraftItem = {
+  id: string;
+  product: { name: string; unit: "WEIGHT_KG" | "PIECE" } | null;
+  rawText: string;
+  quantity: string;
+  lineTotalCents: number;
+  hasStockWarning: boolean;
+};
+type Response = {
+  order: { id: string; reference: string; draftedBy: string; totalCents: number; items: DraftItem[] } | null;
+  appendedToOrderId?: string;
+  message?: string;
+};
+
+const chf = (cents: number) => `CHF ${(cents / 100).toFixed(2)}`;
+
+export function SimulatorForm() {
+  const [phone, setPhone] = useState("+41791234567");
+  const [name, setName] = useState("Anna Muster");
+  const [text, setText] = useState("Para el sábado quiero 2 kg de entrecot y 6 salchichas");
+  const [pending, setPending] = useState(false);
+  const [result, setResult] = useState<Response | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    setPending(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch("/api/simulator/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneE164: phone, profileName: name || undefined, text }),
+      });
+      const body = await res.json();
+      if (!res.ok) setError(body.message ?? "Error al enviar");
+      else setResult(body);
+    } catch {
+      setError("Sin conexión");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <form onSubmit={send} className="space-y-3 rounded-lg bg-white p-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            Teléfono (E.164)
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} name="phoneE164"
+              className="mt-1 w-full rounded border border-stone-300 px-3 py-2" />
+          </label>
+          <label className="text-sm">
+            Nombre de perfil
+            <input value={name} onChange={(e) => setName(e.target.value)} name="profileName"
+              className="mt-1 w-full rounded border border-stone-300 px-3 py-2" />
+          </label>
+        </div>
+        <label className="block text-sm">
+          Mensaje
+          <textarea value={text} onChange={(e) => setText(e.target.value)} name="text" rows={3}
+            className="mt-1 w-full rounded border border-stone-300 px-3 py-2" />
+        </label>
+        <button disabled={pending} className="rounded bg-green-700 px-4 py-2 font-medium text-white disabled:opacity-60">
+          {pending ? "Interpretando…" : "Enviar mensaje"}
+        </button>
+      </form>
+
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+
+      {result?.appendedToOrderId && (
+        <p className="rounded-lg bg-amber-50 p-4 text-sm">
+          Este cliente ya tiene un pedido en borrador: el mensaje se sumó a su conversación.{" "}
+          <Link href={`/admin/orders/${result.appendedToOrderId}`} className="text-red-800 underline">Ver pedido</Link>
+        </p>
+      )}
+
+      {result?.order && (
+        <div data-testid="draft-result" className="rounded-lg bg-white p-4 shadow-sm">
+          <p className="mb-2 font-semibold">
+            Borrador <span className="font-mono">{result.order.reference}</span>{" "}
+            <span className="text-sm font-normal text-stone-500">
+              ({result.order.draftedBy === "AI" ? "AI" : "reglas"})
+            </span>
+          </p>
+          <ul className="space-y-1 text-sm">
+            {result.order.items.map((i) => (
+              <li key={i.id}>
+                {Number(i.quantity)} {i.product?.unit === "PIECE" ? "u." : i.product ? "kg" : ""}{" "}
+                {i.product?.name ?? <em className="text-amber-700">sin reconocer: “{i.rawText}”</em>} —{" "}
+                {chf(i.lineTotalCents)}
+                {i.hasStockWarning && <span className="ml-2 text-red-700">supera lo disponible</span>}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 font-bold">Total: {chf(result.order.totalCents)}</p>
+          <Link href={`/admin/orders/${result.order.id}`} className="mt-3 inline-block text-red-800 underline">
+            Abrir en el backoffice →
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
