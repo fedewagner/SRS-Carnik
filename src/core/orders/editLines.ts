@@ -4,7 +4,7 @@ import { isValidQuantity, lineTotalCents } from "./pricing";
 
 export type EditResult =
   | { ok: true }
-  | { ok: false; code: "ORDER_NOT_DRAFT" | "NOT_FOUND" | "INVALID_QUANTITY" | "UNRESOLVED_LINE" };
+  | { ok: false; code: "ORDER_NOT_DRAFT" | "NOT_FOUND" | "INVALID_QUANTITY" | "UNRESOLVED_LINE" | "ALREADY_RESOLVED" };
 
 type Tx = Prisma.TransactionClient;
 
@@ -90,6 +90,26 @@ export function addLine(orderId: string, productId: string, quantity: string) {
         unitPriceCents: product.pricePerUnitCents,
         ...priceLine(product, q),
       },
+    });
+  });
+}
+
+/**
+ * Asigna a mano un producto a una mención que el intérprete no reconoció. Conserva el texto
+ * original del cliente y toma el precio vigente del catálogo en ese momento.
+ */
+export function resolveLine(orderId: string, itemId: string, productId: string, quantity: string) {
+  return editDraft(orderId, async (tx) => {
+    const item = await tx.orderItem.findFirst({ where: { id: itemId, orderId } });
+    if (!item) throw new EditRejected("NOT_FOUND");
+    if (item.productId) throw new EditRejected("ALREADY_RESOLVED");
+    const product = await tx.product.findFirst({ where: { id: productId, isActive: true } });
+    if (!product) throw new EditRejected("NOT_FOUND");
+    const q = new Prisma.Decimal(quantity);
+    if (!isValidQuantity(product.unit, q)) throw new EditRejected("INVALID_QUANTITY");
+    await tx.orderItem.update({
+      where: { id: itemId },
+      data: { productId, unitPriceCents: product.pricePerUnitCents, ...priceLine(product, q) },
     });
   });
 }

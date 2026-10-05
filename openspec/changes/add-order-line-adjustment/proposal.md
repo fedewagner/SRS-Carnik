@@ -5,6 +5,8 @@ Cuando la AI interpreta mal un pedido o una línea supera el stock, el empleado 
 ## What Changes
 
 - Desde el detalle de un pedido en borrador, el empleado puede **cambiar la cantidad** de una línea, **eliminarla** y **añadir una línea** de un producto del catálogo.
+- A una **mención que la AI no reconoció** se le asigna a mano un producto del catálogo con un desplegable y su cantidad; se conserva el texto original del cliente.
+- Una columna **Stock disponible** muestra las existencias actuales de cada producto, que ya descuentan los pedidos confirmados (el descuento ocurre en la transacción de confirmación). Los desplegables también la muestran.
 - Cada edición se valida en el servidor, recalcula importe, total y aviso de disponibilidad contra la base, y se rechaza si el pedido ya no está en borrador.
 - La edición y la confirmación se serializan sobre el mismo pedido: no puede confirmarse una versión que alguien está modificando.
 

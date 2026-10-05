@@ -27,6 +27,6 @@ export function listActiveProducts() {
   return db.product.findMany({
     where: { isActive: true },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, unit: true },
+    select: { id: true, name: true, unit: true, stockQuantity: true },
   });
 }

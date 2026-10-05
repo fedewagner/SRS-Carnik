@@ -28,7 +28,7 @@ test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ pag
   await test.step("el cliente escribe su pedido (simulador)", async () => {
     await page.getByRole("link", { name: "Simulador WhatsApp" }).click();
     await page.getByLabel("Teléfono (E.164)").fill(phone);
-    await page.getByLabel("Mensaje").fill("Para el sábado quiero 2 kg de entrecot y 6 salchichas");
+    await page.getByLabel("Mensaje").fill("Para el sábado quiero 2 kg de entrecot, 6 salchichas y 1 kg de cordero");
     await page.getByRole("button", { name: "Enviar mensaje" }).click();
     const draft = page.getByTestId("draft-result");
     await expect(draft).toContainText("Entrecot");
@@ -38,16 +38,25 @@ test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ pag
 
   await test.step("el empleado revisa el borrador junto a la conversación", async () => {
     await page.getByRole("link", { name: /Abrir en el backoffice/ }).click();
-    await expect(page.getByTestId("order-line")).toHaveCount(2);
+    await expect(page.getByTestId("order-line")).toHaveCount(3);
     await expect(page.getByTestId("order-total")).toHaveText("CHF 89.40");
     await expect(page.getByTestId("message-inbound")).toContainText("2 kg de entrecot");
+  });
+
+  await test.step("asigna un producto a la mención sin reconocer", async () => {
+    const costillas = await page.locator("option", { hasText: "Costillas de cerdo" }).first().getAttribute("value");
+    await page.getByLabel("Producto para «1 kg de cordero»").selectOption(costillas!);
+    await page.getByRole("button", { name: "Asignar" }).click();
+    // 89,40 + 1 kg × 16,50
+    await expect(page.getByTestId("order-total")).toHaveText("CHF 105.90");
+    await expect(page.getByTestId("line-stock")).toHaveCount(3);
   });
 
   await test.step("ajusta la cantidad de una línea antes de confirmar (US-08)", async () => {
     await page.getByLabel("Cantidad de Entrecot").fill("1,5");
     await page.getByLabel("Cantidad de Entrecot").press("Enter");
     // 1,5 kg × 39,00 + 6 × 1,90
-    await expect(page.getByTestId("order-total")).toHaveText("CHF 69.90");
+    await expect(page.getByTestId("order-total")).toHaveText("CHF 86.40"); // 105,90 − 0,5 kg × 39
   });
 
   await test.step("confirma y el stock se descuenta", async () => {

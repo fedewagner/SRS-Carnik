@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ingestInboundMessage } from "@/core/messaging/ingest";
 import { confirmOrder } from "@/core/orders/confirm";
-import { addLine, removeLine, updateLineQuantity } from "@/core/orders/editLines";
+import { addLine, removeLine, resolveLine, updateLineQuantity } from "@/core/orders/editLines";
 import { db } from "@/lib/db";
 import { createEmployee, resetDatabase, seedCatalog } from "../helpers/db";
 
@@ -89,6 +89,33 @@ describe("ajuste de líneas (US-08)", () => {
     await updateLineQuantity(order.id, order.items[0].id, "1");
     await confirmOrder(order.id, employee.id);
     expect(Number((await db.product.findUniqueOrThrow({ where: { slug: "entrecot" } })).stockQuantity)).toBe(4);
+  });
+
+  it("asignar un producto a una mención sin reconocer la valora y conserva el texto", async () => {
+    const order = await draft("2 kg de cordero y 6 salchichas");
+    const cordero = order.items.find((i) => !i.productId)!;
+    const entrecot = await db.product.findUniqueOrThrow({ where: { slug: "entrecot" } });
+
+    expect(await resolveLine(order.id, cordero.id, entrecot.id, "1,5".replace(",", "."))).toEqual({ ok: true });
+
+    const after = await reload(order.id);
+    expect(after.items.find((i) => i.id === cordero.id)).toMatchObject({
+      productId: entrecot.id,
+      rawText: "2 kg de cordero",
+      unitPriceCents: 3900,
+      lineTotalCents: 5850,
+      hasStockWarning: false,
+    });
+    expect(after.totalCents).toBe(5850 + 1140);
+  });
+
+  it("no reasigna una línea que ya tiene producto", async () => {
+    const order = await draft("6 salchichas");
+    const cervelat = await db.product.findUniqueOrThrow({ where: { slug: "cervelat" } });
+    expect(await resolveLine(order.id, order.items[0].id, cervelat.id, "1")).toEqual({
+      ok: false,
+      code: "ALREADY_RESOLVED",
+    });
   });
 
   it("la server action sin sesión se rechaza sin modificar la línea", async () => {

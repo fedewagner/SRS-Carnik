@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { addLineAction, type LineActionState } from "@/app/(staff)/admin/orders/[id]/actions";
 
-type CatalogOption = { id: string; name: string; unit: "WEIGHT_KG" | "PIECE" };
+import type { CatalogOption } from "./OrderLineRow";
 
 /** Alta de una línea con un producto activo del catálogo. El precio lo pone el servidor. */
 export function AddLineForm({ orderId, products }: { orderId: string; products: CatalogOption[] }) {
@@ -15,7 +15,7 @@ export function AddLineForm({ orderId, products }: { orderId: string; products: 
       <select name="productId" aria-label="Producto" required className="rounded border border-stone-300 px-2 py-1">
         {products.map((p) => (
           <option key={p.id} value={p.id}>
-            {p.name} ({p.unit === "PIECE" ? "u." : "kg"})
+            {p.name} ({p.unit === "PIECE" ? "u." : "kg"}) · {Number(p.stockQuantity)} disp.
           </option>
         ))}
       </select>

@@ -23,3 +23,10 @@ export const AddLineSchema = z.object({
   productId: OrderIdSchema,
   quantity: QuantityInputSchema,
 });
+
+export const ResolveLineSchema = z.object({
+  orderId: OrderIdSchema,
+  itemId: OrderIdSchema,
+  productId: OrderIdSchema,
+  quantity: QuantityInputSchema,
+});
