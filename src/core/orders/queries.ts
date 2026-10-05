@@ -17,8 +17,16 @@ export function getOrderDetail(id: string) {
     include: {
       customer: true,
       confirmedBy: { select: { email: true } },
-      items: { include: { product: true }, orderBy: { createdAt: "asc" } },
+      items: { include: { product: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
       conversation: { include: { messages: { orderBy: { createdAt: "asc" } } } },
     },
+  });
+}
+
+export function listActiveProducts() {
+  return db.product.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, unit: true },
   });
 }

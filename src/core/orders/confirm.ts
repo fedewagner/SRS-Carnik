@@ -20,7 +20,13 @@ export type ConfirmResult =
       summaryMessage: { status: string; messageId: string } | null;
     };
 
-class InsufficientStockError extends Error {}
+type ConfirmedItem = Prisma.OrderItemGetPayload<{ include: { product: true } }>;
+
+class InsufficientStockError extends Error {
+  constructor(readonly items: ConfirmedItem[]) {
+    super("INSUFFICIENT_STOCK");
+  }
+}
 
 /**
  * Confirmación en una transacción con updateMany condicional (D10):
@@ -29,30 +35,32 @@ class InsufficientStockError extends Error {}
  * El resumen al cliente se envía después del commit, nunca dentro (D12).
  */
 export async function confirmOrder(orderId: string, userId: string): Promise<ConfirmResult> {
-  const order = await db.order.findUnique({
-    where: { id: orderId },
-    include: { items: { include: { product: true } } },
-  });
+  const order = await db.order.findUnique({ where: { id: orderId }, select: { conversationId: true } });
   if (!order) return { kind: "not_found" };
 
-  const resolved = order.items.filter((i) => i.productId);
-
   try {
-    const transitioned = await db.$transaction(async (tx) => {
+    const outcome = await db.$transaction(async (tx) => {
+      // El updateMany bloquea la fila del Order: las ediciones de líneas toman el mismo
+      // bloqueo, así que las líneas que se leen a continuación son las que se confirman.
       const { count } = await tx.order.updateMany({
         where: { id: orderId, status: "DRAFT" },
         data: { status: "CONFIRMED", confirmedAt: new Date(), confirmedByUserId: userId },
       });
-      if (count === 0) return false;
+      if (count === 0) return null;
 
-      for (const item of resolved) {
+      const items = await tx.orderItem.findMany({
+        where: { orderId, productId: { not: null } },
+        include: { product: true },
+        orderBy: { createdAt: "asc" },
+      });
+      for (const item of items) {
         const updated = await tx.product.updateMany({
           where: { id: item.productId!, stockQuantity: { gte: item.quantity } },
           data: { stockQuantity: { decrement: item.quantity } },
         });
-        if (updated.count === 0) throw new InsufficientStockError();
+        if (updated.count === 0) throw new InsufficientStockError(items);
       }
-      return true;
+      return items;
     });
 
     const confirmed = await db.order.findUniqueOrThrow({ where: { id: orderId } });
@@ -64,11 +72,11 @@ export async function confirmOrder(orderId: string, userId: string): Promise<Con
       confirmedAt: confirmed.confirmedAt!,
       confirmedByUserId: confirmed.confirmedByUserId!,
     };
-    if (!transitioned) return { kind: "confirmed", alreadyConfirmed: true, order: result, summaryMessage: null };
+    if (!outcome) return { kind: "confirmed", alreadyConfirmed: true, order: result, summaryMessage: null };
 
     const summary = await sendOutboundMessage({
       conversationId: order.conversationId,
-      body: buildSummary(order.reference, resolved, confirmed.totalCents),
+      body: buildSummary(confirmed.reference, outcome, confirmed.totalCents),
     });
     return {
       kind: "confirmed",
@@ -79,6 +87,7 @@ export async function confirmOrder(orderId: string, userId: string): Promise<Con
   } catch (error) {
     if (!(error instanceof InsufficientStockError)) throw error;
     // El updateMany no dice qué faltó: se relee para construir el detalle (trade-off de D10).
+    const resolved = error.items;
     const fresh = await db.product.findMany({
       where: { id: { in: resolved.map((i) => i.productId!) } },
     });
