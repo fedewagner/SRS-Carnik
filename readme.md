@@ -14,14 +14,14 @@ Pedidos por WhatsApp para carnicerías, redactados por AI y confirmados por una 
 | **Repositorio** | https://github.com/fedewagner/SRS-Carnik |
 | **URL de la demo** | https://srs-carnik-production.up.railway.app · las credenciales de prueba se entregan por el formulario, no en el repositorio público |
 | **Stack** | Next.js 15 (App Router) · Prisma 6 · PostgreSQL 16 · Claude API · Railway |
-| **Alcance** | 17 tareas del piso replanificado, de 28 especificadas · ver la tabla de abajo |
-| **Estado** | Flujo E2E desplegado y funcionando. 26 tests en verde en CI |
+| **Alcance** | Piso de 17 tareas más dos incrementos: WhatsApp real vía Twilio y ajuste de líneas · ver la tabla de abajo |
+| **Estado** | Flujo E2E desplegado y funcionando por WhatsApp real. 53 tests y un E2E en verde en CI |
 
 El documento combina dos capas. **§1.3, §1.4, §2.4, §2.6 y §7 describen lo implementado y verificado**; el resto es el diseño de la Entrega 1, derivado de `openspec/changes/bootstrap-carnik/`, que sigue siendo válido para lo que está fuera de esta entrega.
 
 ### Alcance entregado frente a especificado
 
-La entrega se adelantó a dos días de trabajo sin código escrito. El plan de 28 tareas (~20 h) no entraba, así que se replanificó a un **piso de 17 tareas (~10 h)** ejecutando el orden de caída pre-comprometido del `proposal.md` hasta el escalón 3. Lo que no está es una decisión registrada en `tasks.md`, no una omisión.
+La entrega se adelantó a dos días de trabajo sin código escrito. El plan de 28 tareas (~20 h) no entraba, así que se replanificó a un **piso de 17 tareas (~10 h)** ejecutando el orden de caída pre-comprometido del `proposal.md` hasta el escalón 3. Lo que no está es una decisión registrada en `tasks.md`, no una omisión. Con el piso desplegado, se sumaron dos incrementos, cada uno como change propio de `openspec/`: el canal de WhatsApp real (`add-whatsapp-twilio-channel`) y el ajuste de líneas (`add-order-line-adjustment`).
 
 | Historia | Qué es | Estado |
 |---|---|:-:|
@@ -32,10 +32,11 @@ La entrega se adelantó a dos días de trabajo sin código escrito. El plan de 2
 | `US-05` | Valoración en servidor contra catálogo y existencias | ✅ |
 | `US-07` | Listado y detalle con la conversación | ✅ · sin badge con polling |
 | `US-10` | Confirmación transaccional que descuenta existencias | ✅ |
-| `US-11` | Resumen al cliente tras confirmar | ✅ · registrado en la conversación con transporte `log`; sin acuse automático |
-| `US-01` | Webhook real de Meta Cloud API | ⏭ escalón 3 del orden de caída: el canal es el simulador |
-| `US-03` | Límite de mensajes por remitente | ⏭ sólo protege el webhook público, que no existe en esta entrega |
-| `US-08` · `US-09` | Ajuste de líneas y corrección de existencias desde la línea | ⏭ primer incremento pendiente |
+| `US-11` | Acuse al recibir y resumen al confirmar | ✅ · llegan al WhatsApp del cliente |
+| `US-01` | Recibir pedidos por WhatsApp | ✅ · vía **Twilio WhatsApp Sandbox**, no Meta (ver §2.4) |
+| `US-08` | Ajustar, eliminar y añadir líneas del borrador | ✅ · más asignación manual de producto a menciones sin reconocer y columna de stock disponible |
+| `US-03` | Límite de mensajes por remitente | ⏭ el sandbox sólo admite participantes unidos con código; vuelve a ser necesario con un número propio |
+| `US-09` | Corrección de existencias desde la línea | ⏭ |
 | `US-12` | Mensaje manual del empleado | ⏭ |
 | `US-13` | Cola de armado en `/dashboard` | ⏭ escalón 2 del orden de caída |
 
@@ -124,6 +125,20 @@ Recorrido real en producción, capturado en https://srs-carnik-production.up.rai
 
 ![Listado de pedidos](docs/screenshots/05-listado.png)
 
+**6 · Corrección antes de confirmar (`US-08`).** En borrador, cada cantidad se edita en su línea y cada línea se puede eliminar; abajo se añaden productos del catálogo. A una mención que la AI no reconoció —aquí «2 kg de cordero», que no está en el catálogo— se le asigna un producto con el desplegable, conservando el texto original. La columna **Stock disponible** muestra las existencias actuales, que ya descuentan los pedidos confirmados, y se marca en rojo cuando la línea las supera.
+
+![Línea sin reconocer y stock disponible](docs/screenshots/06-linea-sin-reconocer.png)
+
+#### Probarlo desde WhatsApp
+
+El canal real usa el **sandbox de WhatsApp de Twilio**, que admite a cualquier teléfono que se una con un código:
+
+1. Desde WhatsApp, enviar `join <código-del-sandbox>` al **+1 415 523 8886**. El código se entrega junto con las credenciales de la demo.
+2. Escribir un pedido en lenguaje natural, por ejemplo *«Para mañana quiero 1 kg de entrecot y 4 hamburguesas»*. Llega al instante un acuse de recepción.
+3. En el backoffice el pedido aparece como borrador, interpretado con AI. Al confirmarlo, el resumen con las líneas y el total llega al mismo chat.
+
+La unión al sandbox caduca tras un tiempo sin actividad; basta con volver a enviar el `join`. El simulador sigue disponible como canal alternativo y es el que usan los tests.
+
 ### 1.4 Instrucciones de instalación
 
 #### Requisitos previos
@@ -169,7 +184,10 @@ Usuarios sembrados: `admin@carnik.test` (`ADMIN`) y `empleado@carnik.test` (`EMP
 | `ANTHROPIC_MODEL` | Modelo del intérprete. Por defecto `claude-opus-5-5` |
 | `ANTHROPIC_WORKSPACE_ID` | Sólo si la API key no está asignada a un workspace |
 | `ORDER_DRAFTER` | `llm` o `rules` (determinista, sin red) |
-| `WHATSAPP_TRANSPORT` | `log`: el mensaje saliente se registra sin llamar a ningún proveedor. Es el único modo de esta entrega |
+| `WHATSAPP_TRANSPORT` | `twilio`: envía por WhatsApp, sólo a conversaciones que llegaron por WhatsApp. `log` (por defecto, tests y CI): registra sin enviar |
+| `TWILIO_ACCOUNT_SID` · `TWILIO_AUTH_TOKEN` | Cuenta de Twilio. El token firma el webhook y autentica los envíos. **Secreto** |
+| `TWILIO_WHATSAPP_FROM` | Número del sandbox, `whatsapp:+14155238886` |
+| `TWILIO_WEBHOOK_URL` | URL exacta configurada en Twilio; la firma se valida contra ella. Sin las cuatro `TWILIO_*`, el webhook rechaza todo |
 | `SIMULATOR_ENABLED` | `true` habilita `/simulator` y su endpoint. Con `false` responden 404 |
 | `SEED_PASSWORD` | Contraseña de los usuarios sembrados. Sólo la usa el seed |
 
@@ -287,7 +305,7 @@ Los sacrificios 3 y 4 son los únicos que tocan al usuario final. Los demás son
 ```
 SRS-Carnik/
 ├── .github/workflows/ci.yml           # auditoría, lint, typecheck, unit + integración, build, E2E
-├── openspec/changes/bootstrap-carnik/ # especificación viva: proposal, design, tasks (17 del piso), specs
+├── openspec/changes/                  # bootstrap-carnik (17 tareas del piso), add-whatsapp-twilio-channel, add-order-line-adjustment
 ├── prisma/
 │   ├── schema.prisma                  # las 7 entidades de §3
 │   ├── migrations/…_init/migration.sql # incluye los dos CHECK añadidos a mano
@@ -300,20 +318,23 @@ SRS-Carnik/
 │   │   │   ├── layout.tsx
 │   │   │   ├── admin/orders/page.tsx            # listado
 │   │   │   ├── admin/orders/[id]/page.tsx       # detalle + conversación
+│   │   │   ├── admin/orders/[id]/actions.ts     # server actions de edición de líneas
 │   │   │   └── simulator/page.tsx
 │   │   └── api/
 │   │       ├── health/route.ts
 │   │       ├── simulator/messages/route.ts
+│   │       ├── webhooks/twilio/route.ts         # WhatsApp entrante, con firma
 │   │       └── orders/[orderId]/confirm/route.ts
 │   ├── core/                          # LÓGICA DE NEGOCIO — no importa Next.js
 │   │   ├── messaging/{types,ingest,outbound}.ts
 │   │   ├── drafting/{types,schema,aliases,rules,llm,index}.ts
-│   │   └── orders/{pricing,createDraft,confirm,queries}.ts
+│   │   └── orders/{pricing,createDraft,editLines,confirm,queries}.ts
 │   ├── lib/                           # infraestructura
 │   │   ├── db.ts · http.ts
 │   │   ├── auth/{session,guard}.ts
+│   │   ├── twilio/{config,parse,send}.ts         # único módulo que conoce a Twilio
 │   │   └── validation/{messaging,orders}.ts
-│   └── components/{ConfirmOrderButton,SimulatorForm,StatusBadge}.tsx
+│   └── components/{ConfirmOrderButton,OrderLineRow,AddLineForm,SimulatorForm,StatusBadge}.tsx
 ├── tests/
 │   ├── unit/ · integration/ · e2e/order-flow.spec.ts
 │   ├── env.ts · test.env              # variables de test, sin secretos
@@ -323,9 +344,9 @@ SRS-Carnik/
 ├── railway.json · next.config.ts · vitest.config.ts · playwright.config.ts
 └── readme.md · prompts.md
 
-⏭ Fuera de esta entrega: api/webhooks/whatsapp, api/orders/pending-count, dashboard/,
-  admin/orders/[id]/actions.ts, core/messaging/rateLimit.ts, core/stock/adjust.ts,
-  lib/whatsapp/*, PendingBadge.tsx, OrderLineRow.tsx, SECURITY.md
+⏭ Fuera de esta entrega: api/orders/pending-count, dashboard/, core/messaging/rateLimit.ts,
+  core/stock/adjust.ts, PendingBadge.tsx, SECURITY.md
+  Sustituidos por Twilio: api/webhooks/whatsapp → api/webhooks/twilio, lib/whatsapp/* → lib/twilio/*
 ```
 
 #### Propósito de cada carpeta y a qué patrón obedece
@@ -363,11 +384,12 @@ Es también lo que hace posible la pirámide de `tests/`: la mayoría del compor
 | **Railway** | Proyecto con dos servicios, la app Next.js (builder Railpack) y PostgreSQL 16 gestionado sin exposición pública. Configuración versionada en `railway.json` |
 | **Arranque** | `npm start` = `prisma migrate deploy && next start`. Las migraciones corren antes de servir tráfico, como describe el diagrama |
 | **CI** | `.github/workflows/ci.yml` en verde en cada push del PR: auditoría de dependencias de producción → lint → typecheck → unitarios e integración contra un servicio PostgreSQL → build → E2E con Playwright |
+| **WhatsApp** | Webhook `POST /api/webhooks/twilio` dado de alta en el sandbox de Twilio; mensajes reales recibidos y respondidos (acuse y resumen) desde un teléfono |
 | **Cabeceras de seguridad** | `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options` y `Referrer-Policy` verificadas en la respuesta pública |
 
 Tres diferencias con el diseño de abajo:
 
-- **Sin Meta.** No hay webhook ni variables de Meta en Railway: el canal de entrada es el simulador y el saliente, `log` (§0, alcance entregado).
+- **Twilio en lugar de Meta.** El diseño de la Entrega 1 (D7) eligió Meta Cloud API porque firma sobre el cuerpo crudo, mientras Twilio firma sobre la URL pública, que detrás del proxy de Railway no coincide con la que ve el proceso. La decisión se revirtió por tres hechos nuevos: ya había cuenta de Twilio y no app de Meta, cuyo alta era el paso más incierto; el sandbox de Twilio permite a un evaluador probar desde su teléfono, mientras que el número de prueba de Meta exige verificar cada destinatario; y el tiempo era de horas. La trampa de la URL se neutraliza **sin reconstruir nada**: la firma se valida contra la variable fija `TWILIO_WEBHOOK_URL` (decisión T2 de `add-whatsapp-twilio-channel`), y un test lo comprueba con cabeceras `X-Forwarded-*` manipuladas.
 - **Migraciones en CI.** No son un paso propio del workflow: las aplica el `globalSetup` de los tests antes de la primera suite, que es el mismo `prisma migrate deploy` sobre una base vacía.
 - **Protección de `main`.** El paso 4 del proceso de despliegue («la rama `main` está protegida») es una recomendación, **no está configurado** en el repositorio. El control efectivo es que todo entra por PR con el CI en verde.
 
@@ -513,7 +535,7 @@ Las tres variables marcadas ⬜ en local sólo hacen falta si se quiere probar c
 git check-ignore -v .env   # .gitignore:2:.env	.env
 ```
 
-**Variables en Railway** (los valores no salen de Railway): `DATABASE_URL` como referencia a la del servicio PostgreSQL (`${{Postgres.DATABASE_URL}}`), `SESSION_SECRET` generado con `openssl rand -hex 32`, `SEED_PASSWORD` aleatoria, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ORDER_DRAFTER=llm`, `WHATSAPP_TRANSPORT=log` y `SIMULATOR_ENABLED=true`.
+**Variables en Railway** (los valores no salen de Railway): `DATABASE_URL` como referencia a la del servicio PostgreSQL (`${{Postgres.DATABASE_URL}}`), `SESSION_SECRET` generado con `openssl rand -hex 32`, `SEED_PASSWORD` aleatoria, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ORDER_DRAFTER=llm`, `WHATSAPP_TRANSPORT=twilio`, `SIMULATOR_ENABLED=true` y las cuatro `TWILIO_*`. El `TWILIO_AUTH_TOKEN` se cargó directamente en el panel de Railway, sin pasar por el repositorio ni por la conversación con el asistente.
 
 **GitHub Secrets sigue vacío, como se diseñó.** El workflow fija en claro valores de prueba que no protegen nada (`ORDER_DRAFTER=rules`, una base efímera, un `SESSION_SECRET` de CI), así que una filtración del repositorio no compromete ninguna credencial.
 
@@ -711,7 +733,7 @@ Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las die
 
 ### 2.6 Tests
 
-#### Suite implementada · 26 tests en verde
+#### Suite implementada · 53 tests y un E2E en verde
 
 | Nivel | Fichero | Qué verifica |
 |---|---|---|
@@ -719,9 +741,13 @@ Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las die
 | Unitario | `tests/unit/rules-drafter.test.ts` (7) | El ejemplo canónico de la spec; gramos y «medio kilo»; coma decimal; mención sin resolver que conserva `rawText`; **«el entrecot cuesta 0,10 CHF» no genera línea**; un saludo no genera pedido |
 | Integración | `tests/integration/confirm-order.test.ts` (8) | **C1** confirma, descuenta y registra el resumen · **C2** stock insuficiente: `409` con la línea, rollback completo · **C3** dos confirmaciones concurrentes descuentan una sola vez y envían un solo resumen · el `CHECK` rechaza stock negativo por SQL directo · valoración con precios de la base · segundo mensaje con borrador abierto · idempotencia por `providerMessageId` |
 | Integración | `tests/integration/authorization.test.ts` (3) | `401` en la confirmación **sin consultar la base** · `401` en el simulador sin crear mensajes · `404` con el simulador apagado |
-| E2E | `tests/e2e/order-flow.spec.ts` (1) | Login → simulador → borrador valorado (CHF 89,40) → detalle con la conversación → confirmación → existencias descontadas en la base y resumen visible |
+| Unitario | `tests/unit/twilio-parse.test.ts` (6) | Formulario de Twilio → mensaje del dominio; adjunto marcado sin contenido; remitente sin prefijo o malformado, sin `MessageSid` o texto vacío rechazados |
+| Integración | `tests/integration/twilio-webhook.test.ts` (9) | Firma válida → borrador y acuse · firma inválida, ausente o con un parámetro alterado → `403` sin escrituras · **firma hecha para otra URL con `X-Forwarded-*` imitando la configurada → `403`** · sin credenciales → `403` (fallo cerrado) · reintento del mismo `MessageSid` sin duplicados · adjunto sin pedido y con respuesta pidiendo texto · remitente malformado → `400` |
+| Integración | `tests/integration/outbound-transport.test.ts` (3) | Transporte `twilio` con el SDK sustituido: envío registrado con el SID del proveedor · fallo de Twilio → `FAILED` sin lanzar · **una conversación del simulador nunca sale a la red** |
+| Integración | `tests/integration/edit-lines.test.ts` (10) | Ajuste de cantidad recalcula importe, total y aviso · cantidad cero, negativa o fraccionaria en piezas rechazada · añadir y eliminar recalculan el total · asignar producto a una mención sin reconocer · un pedido confirmado no admite ediciones · la cantidad editada es la que se descuenta · server action sin sesión rechazada |
+| E2E | `tests/e2e/order-flow.spec.ts` (1) | Login → simulador → borrador valorado → detalle con la conversación y el acuse → **asigna un producto a «1 kg de cordero»** → **ajusta el entrecot a 1,5 kg** → confirmación → existencias descontadas con la cantidad editada y resumen visible |
 
-**Lo que el diseño de abajo preveía y esta suite no cubre**, por estar fuera del alcance entregado: webhook y firma HMAC, badge con polling, ajuste de líneas y de existencias, acuse automático y el E2E con ajuste de cantidad y `/dashboard`. Tampoco hay test del `LlmOrderDrafter` en CI, deliberadamente: la suite corre con `ORDER_DRAFTER=rules`. La AI se verificó a mano contra los mismos cuatro mensajes que el intérprete por reglas, incluido el intento de fijar el precio, y en el recorrido de producción de §1.3.
+**Lo que el diseño de abajo preveía y esta suite no cubre**, por estar fuera del alcance entregado: el webhook de Meta (sustituido por el de Twilio, cubierto arriba), badge con polling, corrección de existencias y `/dashboard`. La recepción real por WhatsApp no corre en CI: se verificó con mensajes desde un teléfono. Tampoco hay test del `LlmOrderDrafter` en CI, deliberadamente: la suite corre con `ORDER_DRAFTER=rules`. La AI se verificó a mano contra los mismos cuatro mensajes que el intérprete por reglas, incluido el intento de fijar el precio, y en el recorrido de producción de §1.3.
 
 El resto de esta sección es la estrategia de la Entrega 1, que sigue valiendo como plan para los incrementos pendientes.
 
@@ -2333,8 +2359,10 @@ Sólo comodidad: se comprueba que hay al menos una línea y que ninguna está si
 | PR | Rama | Contenido | Estado |
 |---|---|---|---|
 | [#1](https://github.com/fedewagner/SRS-Carnik/pull/1) | `feature-entrega1-FJW` | **Entrega 1 · Documentación técnica.** Producto, arquitectura, modelo de datos, API, historias y tickets, derivados de la especificación de `openspec/` | Mergeado |
-| [#2](https://github.com/fedewagner/SRS-Carnik/pull/2) | `coderabbit/…` | Propuesta automática de CodeRabbit. **No se incorpora** (ver abajo) | Abierto, sin mergear |
-| [#3](https://github.com/fedewagner/SRS-Carnik/pull/3) | `feature-entrega2-FJW` | **Entrega 2 · MVP ejecutable.** Esquema y migración, login, simulador, interpretación con AI y fallback, backoffice y confirmación transaccional, 26 tests, CI y despliegue en Railway. Un commit por historia | CI en verde |
-| #4 | `feature-entrega3-FJW` | **Entrega final · Documentación cerrada.** Este README con lo verificado, capturas de producción y `prompts.md` de la implementación | Este PR |
+| [#2](https://github.com/fedewagner/SRS-Carnik/pull/2) | `coderabbit/…` | Propuesta automática de CodeRabbit. **No se incorpora** (ver abajo) | Cerrado sin mergear |
+| [#3](https://github.com/fedewagner/SRS-Carnik/pull/3) | `feature-entrega2-FJW` | **Entrega 2 · MVP ejecutable.** Esquema y migración, login, simulador, interpretación con AI y fallback, backoffice y confirmación transaccional, 26 tests, CI y despliegue en Railway. Un commit por historia | Mergeado |
+| [#4](https://github.com/fedewagner/SRS-Carnik/pull/4) | `feature-entrega3-FJW` | **Documentación de la entrega.** README con lo verificado, capturas de producción y `prompts.md` de la implementación | Mergeado |
+| #5 | `feature-whatsapp-twilio-FJW` | **WhatsApp real vía Twilio** (`US-01`, `US-11`). Webhook con firma, transporte saliente y acuse automático | Abierto |
+| #6 | `feature-us08-FJW` | **Ajuste de líneas** (`US-08`), asignación de producto a menciones sin reconocer, columna de stock disponible y este README | Abierto, apilado sobre #5 |
 
 **Por qué se revirtió una contribución de CodeRabbit.** Un commit del bot (`50b52a8`) entró en `main` con la Entrega 1 y ampliaba el alcance sin una decisión de producto detrás: un outbox con reconciliación de estados, un estado `ASSEMBLED` y un filtro de intención convertido en Must-have, que contradecía el análisis INVEST por el que `US-14` había salido del MVP (§5). Sumaba entre 4 y 6 horas a un plan que ya no tenía margen. Se revirtió en el PR #3, y con él `us-patron.md`, una historia de otro dominio que no pertenecía al proyecto.

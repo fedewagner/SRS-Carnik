@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AddLineForm } from "@/components/AddLineForm";
 import { ConfirmOrderButton } from "@/components/ConfirmOrderButton";
+import { OrderLineRow } from "@/components/OrderLineRow";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatChf } from "@/core/orders/pricing";
-import { getOrderDetail } from "@/core/orders/queries";
+import { getOrderDetail, listActiveProducts } from "@/core/orders/queries";
 import { requireRoleOrRedirect, STAFF } from "@/lib/auth/guard";
 import { OrderIdSchema } from "@/lib/validation/orders";
 
@@ -17,6 +19,11 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   if (!order) notFound();
 
   const resolvedLines = order.items.filter((i) => i.productId).length;
+  const editable = order.status === "DRAFT";
+  // Decimal no cruza al cliente: se pasa como texto.
+  const products = editable
+    ? (await listActiveProducts()).map((p) => ({ ...p, stockQuantity: p.stockQuantity.toString() }))
+    : [];
 
   return (
     <section className="grid gap-6 md:grid-cols-[3fr_2fr]">
@@ -37,39 +44,44 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <tr>
                 <th className="px-4 py-2">Producto</th>
                 <th className="px-4 py-2">Cantidad</th>
+                <th className="px-4 py-2" title="Existencias actuales, ya descontados los pedidos confirmados">Stock disponible</th>
                 <th className="px-4 py-2">Precio</th>
                 <th className="px-4 py-2 text-right">Importe</th>
               </tr>
             </thead>
             <tbody>
               {order.items.map((item) => (
-                <tr key={item.id} data-testid="order-line" className="border-t border-stone-100 align-top">
-                  <td className="px-4 py-2">
-                    {item.product ? item.product.name : <span className="text-amber-700">Sin reconocer</span>}
-                    <div className="text-xs text-stone-500">“{item.rawText}”</div>
-                    {item.hasStockWarning && order.status === "DRAFT" && item.product && (
-                      <div className="text-xs font-medium text-red-700">
-                        Supera lo disponible ({Number(item.product.stockQuantity)}{" "}
-                        {item.product.unit === "PIECE" ? "u." : "kg"})
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-2">
-                    {Number(item.quantity)} {item.product?.unit === "PIECE" ? "u." : item.product ? "kg" : ""}
-                  </td>
-                  <td className="px-4 py-2">{item.product ? formatChf(item.unitPriceCents) : "—"}</td>
-                  <td className="px-4 py-2 text-right">{formatChf(item.lineTotalCents)}</td>
-                </tr>
+                <OrderLineRow
+                  key={item.id}
+                  orderId={order.id}
+                  editable={editable}
+                  products={products}
+                  line={{
+                    id: item.id,
+                    rawText: item.rawText,
+                    quantity: item.quantity.toString(),
+                    unitPriceCents: item.unitPriceCents,
+                    lineTotalCents: item.lineTotalCents,
+                    hasStockWarning: item.hasStockWarning,
+                    product: item.product && {
+                      name: item.product.name,
+                      unit: item.product.unit,
+                      stockQuantity: item.product.stockQuantity.toString(),
+                    },
+                  }}
+                />
               ))}
             </tbody>
             <tfoot>
               <tr className="border-t border-stone-200 font-bold">
-                <td className="px-4 py-2" colSpan={3}>Total</td>
-                <td data-testid="order-total" className="px-4 py-2 text-right">{formatChf(order.totalCents)}</td>
+                <td className="px-4 py-2" colSpan={4}>Total</td>
+                <td data-testid="order-total" className="whitespace-nowrap px-4 py-2 text-right">{formatChf(order.totalCents)}</td>
               </tr>
             </tfoot>
           </table>
         </div>
+
+        {editable && <AddLineForm orderId={order.id} products={products} />}
 
         {order.status === "DRAFT" ? (
           <ConfirmOrderButton orderId={order.id} hasLines={resolvedLines > 0} />
