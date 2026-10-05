@@ -46,7 +46,10 @@ test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ pag
   await test.step("confirma y el stock se descuenta", async () => {
     await page.getByRole("button", { name: "Confirmar pedido" }).click();
     await expect(page.getByText(/Confirmado el/)).toBeVisible();
-    await expect(page.getByTestId("message-outbound")).toContainText("está confirmado");
+    const outbound = page.getByTestId("message-outbound");
+    await expect(outbound).toHaveCount(2);
+    await expect(outbound.first()).toContainText("Recibimos tu pedido");
+    await expect(outbound.last()).toContainText("está confirmado");
     expect(await stockOf("entrecot")).toBeCloseTo(entrecotBefore - 2, 3);
     expect(await stockOf("salchicha-lyoner")).toBe(salchichasBefore - 6);
   });

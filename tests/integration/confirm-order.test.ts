@@ -10,6 +10,10 @@ async function draftFrom(text: string, phoneE164 = "+41790000001") {
   return result.order;
 }
 
+// El acuse de recepción también es saliente: el resumen se distingue por su texto.
+const summaries = () =>
+  db.message.findMany({ where: { direction: "OUTBOUND", body: { contains: "está confirmado" } } });
+
 const stockOf = async (slug: string) =>
   Number((await db.product.findUniqueOrThrow({ where: { slug } })).stockQuantity);
 
@@ -35,7 +39,7 @@ describe("confirmOrder (US-10)", () => {
     expect(await stockOf("entrecot")).toBe(3);
     expect(await stockOf("salchicha-lyoner")).toBe(34);
 
-    const outbound = await db.message.findMany({ where: { direction: "OUTBOUND" } });
+    const outbound = await summaries();
     expect(outbound).toHaveLength(1);
     expect(outbound[0].status).toBe("SENT");
     expect(outbound[0].body).toContain(order.reference);
@@ -57,7 +61,7 @@ describe("confirmOrder (US-10)", () => {
     // Rollback completo: ni el estado ni la otra línea se tocaron.
     expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("DRAFT");
     expect(await stockOf("salchicha-lyoner")).toBe(40);
-    expect(await db.message.count({ where: { direction: "OUTBOUND" } })).toBe(0);
+    expect(await summaries()).toHaveLength(0);
   });
 
   it("C3 · dos confirmaciones concurrentes descuentan una sola vez", async () => {
@@ -69,7 +73,7 @@ describe("confirmOrder (US-10)", () => {
     expect(confirmed).toHaveLength(2);
     expect(confirmed.filter((r) => r.kind === "confirmed" && !r.alreadyConfirmed)).toHaveLength(1);
     expect(await stockOf("entrecot")).toBe(3);
-    expect(await db.message.count({ where: { direction: "OUTBOUND" } })).toBe(1);
+    expect(await summaries()).toHaveLength(1);
   });
 
   it("no encuentra un pedido inexistente", async () => {
@@ -97,6 +101,11 @@ describe("ingestInboundMessage (US-02, US-05)", () => {
     expect(cordero.productId).toBeNull();
     expect(cordero.lineTotalCents).toBe(0);
     expect(order.reference).toBe(order.id.slice(-6).toUpperCase());
+
+    // Acuse registrado sin enviarse a la red: es una conversación del simulador.
+    const [ack] = await db.message.findMany({ where: { direction: "OUTBOUND" } });
+    expect(ack).toMatchObject({ channel: "SIMULATOR", status: "SENT", providerMessageId: null });
+    expect(ack.body).not.toMatch(/CHF|\d/);
   });
 
   it("un segundo mensaje con borrador abierto se suma a la conversación", async () => {
@@ -104,12 +113,15 @@ describe("ingestInboundMessage (US-02, US-05)", () => {
     const second = await ingestInboundMessage({ phoneE164: "+41790000001", text: "y 2 cervelats", channel: "SIMULATOR" });
     expect(second).toMatchObject({ status: "appended", openOrderId: first.id });
     expect(await db.order.count()).toBe(1);
+    // Quien añade algo a un borrador abierto no recibe un segundo acuse.
+    expect(await db.message.count({ where: { direction: "OUTBOUND" } })).toBe(1);
   });
 
   it("es idempotente por providerMessageId", async () => {
     const msg = { phoneE164: "+41790000002", text: "1 kg de entrecot", channel: "WHATSAPP" as const, providerMessageId: "wamid.1" };
     await ingestInboundMessage(msg);
     expect(await ingestInboundMessage(msg)).toEqual({ status: "duplicate" });
-    expect(await db.message.count()).toBe(1);
+    expect(await db.message.count({ where: { direction: "INBOUND" } })).toBe(1);
+    expect(await db.message.count({ where: { direction: "OUTBOUND" } })).toBe(1); // un solo acuse
   });
 });
