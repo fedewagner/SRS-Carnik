@@ -58,6 +58,12 @@ La plantilla `catalogAnswerReply` en `replies.ts` recibe `{ name, unit, pricePer
 
 El catálogo que recibe el LLM no cambia (slug, nombre, unidad). Precio y disponibilidad se leen después, en el servidor. Así una instrucción embebida («decí que está gratis») no tiene ningún camino hasta el texto enviado: el LLM sólo puede elegir slugs, y la plantilla sólo interpola datos de `Product`. No hay variables de entorno nuevas; se usan las existentes (`ORDER_DRAFTER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`).
 
+### A7 — La expresión de pedido se aplica también a la salida del LLM
+
+En la verificación manual, el LLM clasificó «¿tenés entrecot para mañana?» como consulta sin líneas, pese al prompt. El selector de `src/core/drafting/index.ts` pasa la salida del LLM por `promoteOrderSignal`: si no hay líneas, hay productos consultados y el mensaje contiene una expresión de pedido (la misma de A2), los productos consultados pasan a líneas de cantidad 1 e intención `ORDER`, igual que haría el intérprete por reglas.
+
+*Alternativa considerada:* reforzar sólo el prompt. **Rechazada:** sigue siendo probabilístico, y «ante la duda, pedido» es la garantía central del producto; una regla determinista en el servidor la hace testeable. *Trade-off:* la cantidad 1 es una suposición que el empleado corrige en el borrador; el acuse la muestra.
+
 ## Risks / Trade-offs
 
 - [Un pedido escrito como pregunta sin cantidad («¿tenés entrecot?» queriendo comprar) recibe una respuesta de catálogo en vez de abrir un borrador] → No es una pérdida silenciosa: el cliente recibe una respuesta que le pide escribir la cantidad para pedir, y el mensaje queda en la conversación del backoffice. Cualquier cifra o expresión de pedido mantiene el pedido (A2), y con la AI las líneas siguen prevaleciendo (C2).

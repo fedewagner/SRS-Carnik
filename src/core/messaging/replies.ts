@@ -1,7 +1,9 @@
+import { formatChf } from "@/core/orders/pricing";
+
 /**
  * Respuestas automáticas al cliente. Todas salen de textos fijos completados con datos de la base:
- * ningún texto del LLM ni del mensaje del cliente llega aquí (C3). Ninguna menciona precios,
- * totales ni disponibilidad.
+ * ningún texto del LLM ni del mensaje del cliente llega aquí (C3). Sólo la respuesta de catálogo
+ * menciona precios y disponibilidad, y nunca totales ni cantidades de existencias (A3).
  */
 
 export type ReplyLine = { quantity: number; unit: "WEIGHT_KG" | "PIECE"; productName: string };
@@ -46,6 +48,28 @@ export function greetingReply(profileName: string | null | undefined, lastOrder:
 
 export function questionReply(): string {
   return "¡Gracias por escribir! Una persona del equipo te responde en breve.";
+}
+
+export type CatalogAnswerItem = {
+  productName: string;
+  unit: "WEIGHT_KG" | "PIECE";
+  pricePerUnitCents: number;
+  available: boolean;
+};
+
+/** Precio vigente y disponibilidad cualitativa: nunca la cantidad en stock ni una reserva (A3). */
+export function catalogAnswerReply(items: CatalogAnswerItem[]): string {
+  const lines = items.map((item) => {
+    const per = item.unit === "PIECE" ? "por unidad" : "por kg";
+    const availability = item.available ? "hay disponible" : "hoy no nos queda";
+    return `• ${item.productName}: ${formatChf(item.pricePerUnitCents)} ${per}, ${availability}.`;
+  });
+  return [
+    "¡Gracias por escribir! Precios de hoy:",
+    ...lines,
+    `Es el precio vigente; la consulta no reserva mercadería. Para pedir, escribinos la cantidad. ${EXAMPLE}`,
+    "Cualquier otra duda te la responde una persona del equipo.",
+  ].join("\n");
 }
 
 export function noHistoryReply(): string {

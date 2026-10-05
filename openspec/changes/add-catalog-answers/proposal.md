@@ -38,7 +38,7 @@ Ninguna.
 
 ## Impact
 
-- **Código:** `src/core/drafting/` (esquema con `askedProducts`, prompt, reglas), módulo nuevo `src/core/messaging/catalog-answer.ts`, plantilla en `src/core/messaging/replies.ts` y una línea en la rama de consulta de `src/core/messaging/ingest.ts`.
+- **Código:** `src/core/drafting/` (esquema con `askedProducts`, prompt, reglas y red de seguridad de pedido sobre la salida del LLM), módulo nuevo `src/core/messaging/catalog-answer.ts`, plantilla en `src/core/messaging/replies.ts` y una línea en la rama de consulta de `src/core/messaging/ingest.ts`.
 - **Datos:** sin migraciones. Sólo lee `Product` (`pricePerUnitCents`, `unit`, `stockQuantity`, `isActive`).
 - **AI:** el esquema de salida suma un campo; el proveedor sigue recibiendo sólo el mensaje y el catálogo, sin precios ni existencias.
 - **Coordinación:** no toca `prisma/schema.prisma` ni `confirm.ts` (PR de `add-catalog-management`). El cambio en la ingesta se limita a la rama de consulta para convivir con la guarda de rate limit de `US-03`.

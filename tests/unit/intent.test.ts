@@ -16,6 +16,15 @@ describe("intentByRules", () => {
   });
 });
 
+describe("intentByRules con productos consultados", () => {
+  it("una consulta de catálogo sin signo de pregunta es consulta", () => {
+    expect(intentByRules("precio del entrecot", 0, 1)).toBe("QUESTION");
+  });
+  it("las líneas prevalecen sobre los productos consultados (C2)", () => {
+    expect(intentByRules("¿a cuánto está el entrecot? mandame 2 kg", 1, 1)).toBe("ORDER");
+  });
+});
+
 describe("isShortAffirmative", () => {
   it.each(["sí", "Si!", "dale", "ok", "sí, por favor", "perfecto."])("acepta «%s»", (t) => {
     expect(isShortAffirmative(t)).toBe(true);

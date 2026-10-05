@@ -1,5 +1,5 @@
 import { LlmOrderDrafter } from "./llm";
-import { RuleBasedOrderDrafter } from "./rules";
+import { RuleBasedOrderDrafter, promoteOrderSignal } from "./rules";
 import type { CatalogEntry, DraftResult, OrderDrafter } from "./types";
 
 const rules = new RuleBasedOrderDrafter();
@@ -11,7 +11,7 @@ export function getOrderDrafter(): OrderDrafter {
   return {
     async draft(text: string, catalog: CatalogEntry[]): Promise<DraftResult> {
       try {
-        return await llm.draft(text, catalog);
+        return promoteOrderSignal(await llm.draft(text, catalog), text);
       } catch (error) {
         console.warn("LlmOrderDrafter falló; se usa el determinista:", (error as Error).message);
         return rules.draft(text, catalog);

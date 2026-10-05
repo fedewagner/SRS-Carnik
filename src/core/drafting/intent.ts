@@ -13,11 +13,12 @@ const REPEAT_EXPLICIT =
 const AFFIRMATIVE = /^(si|dale|ok|okey|okay|de una|perfecto|claro|bueno|va|si,? (por favor|porfa|dale|gracias))[\s!.]*$/;
 const QUESTION_START = /^(que|cuando|donde|cuanto|cuantos|como|a que hora|abren|tienen|tenes|hay|hacen|venden)\b/;
 
-/** Intención derivada sin red, para el intérprete por reglas (C1). */
-export function intentByRules(text: string, lineCount: number): Intent {
+/** Intención derivada sin red, para el intérprete por reglas (C1); con productos consultados es consulta (A2). */
+export function intentByRules(text: string, lineCount: number, askedCount = 0): Intent {
   const t = normalize(text);
   if (REPEAT_EXPLICIT.test(t)) return "REPEAT_LAST";
   if (lineCount > 0) return "ORDER";
+  if (askedCount > 0) return "QUESTION";
   if (t.includes("?") || QUESTION_START.test(t.replace(/^[¿¡]/, ""))) return "QUESTION";
   return "GREETING";
 }
