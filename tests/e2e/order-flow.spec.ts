@@ -9,7 +9,8 @@ const stockOf = async (slug: string) =>
 
 /**
  * Flujo E2E principal: mensaje del cliente → borrador valorado → revisión en el backoffice
- * → ajuste de una cantidad → confirmación → existencias descontadas y resumen registrado en la conversación.
+ * → ajuste de una cantidad → confirmación → existencias descontadas y resumen registrado en la conversación
+ * → mensaje manual al cliente atribuido al empleado.
  */
 test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ page }) => {
   const phone = `+4179${Date.now().toString().slice(-7)}`;
@@ -69,5 +70,16 @@ test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ pag
     await expect(outbound.last()).toContainText("está confirmado");
     expect(await stockOf("entrecot")).toBeCloseTo(entrecotBefore - 1.5, 3);
     expect(await stockOf("salchicha-lyoner")).toBe(salchichasBefore - 6);
+  });
+
+  await test.step("escribe al cliente desde el pedido confirmado (US-12)", async () => {
+    await page.getByLabel("Escribir al cliente").fill("¡Gracias! Te esperamos el sábado.");
+    await page.getByRole("button", { name: "Enviar al cliente" }).click();
+    const outbound = page.getByTestId("message-outbound");
+    await expect(outbound).toHaveCount(3);
+    await expect(outbound.last()).toContainText("¡Gracias! Te esperamos el sábado.");
+    await expect(outbound.last().getByTestId("message-author")).toContainText("por empleado@carnik.test");
+    await expect(page.getByLabel("Escribir al cliente")).toHaveValue("");
+    await expect(page.getByText(/Confirmado el/)).toBeVisible();
   });
 });
