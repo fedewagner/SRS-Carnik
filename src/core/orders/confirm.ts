@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { sendOutboundMessage } from "@/core/messaging/outbound";
+import { lockProduct } from "@/core/catalog/lock";
+import { refreshDraftWarnings } from "@/core/catalog/stock";
 import { formatChf } from "./pricing";
 
 export type InsufficientLine = {
@@ -31,7 +33,7 @@ class InsufficientStockError extends Error {
 /**
  * Confirmación en una transacción con updateMany condicional (D10):
  * 1. DRAFT → CONFIRMED sólo si sigue en DRAFT; count 0 significa que otro ya confirmó.
- * 2. Descuento de cada línea sólo si hay existencias; count 0 revierte todo.
+ * 2. Descuento de cada línea sólo si hay existencias, con su StockMovement; si falta, revierte todo.
  * El resumen al cliente se envía después del commit, nunca dentro (D12).
  */
 export async function confirmOrder(orderId: string, userId: string): Promise<ConfirmResult> {
@@ -53,12 +55,25 @@ export async function confirmOrder(orderId: string, userId: string): Promise<Con
         include: { product: true },
         orderBy: { createdAt: "asc" },
       });
-      for (const item of items) {
-        const updated = await tx.product.updateMany({
-          where: { id: item.productId!, stockQuantity: { gte: item.quantity } },
-          data: { stockQuantity: { decrement: item.quantity } },
+      // Productos bloqueados en orden de id para no cruzarse con otra confirmación (D2 de
+      // add-catalog-management); cada descuento deja su asiento en el libro de existencias.
+      const byProduct = [...items].sort((a, b) => a.productId!.localeCompare(b.productId!));
+      for (const item of byProduct) {
+        const product = await lockProduct(tx, item.productId!);
+        if (!product || product.stockQuantity.lt(item.quantity)) throw new InsufficientStockError(items);
+        const resulting = product.stockQuantity.sub(item.quantity);
+        await tx.product.update({ where: { id: product.id }, data: { stockQuantity: resulting } });
+        await tx.stockMovement.create({
+          data: {
+            productId: product.id,
+            userId,
+            orderId,
+            type: "ORDER_CONFIRMED",
+            previousQuantity: product.stockQuantity,
+            quantityDelta: new Prisma.Decimal(item.quantity).neg(),
+            resultingQuantity: resulting,
+          },
         });
-        if (updated.count === 0) throw new InsufficientStockError(items);
       }
       return items;
     });
@@ -73,6 +88,8 @@ export async function confirmOrder(orderId: string, userId: string): Promise<Con
       confirmedByUserId: confirmed.confirmedByUserId!,
     };
     if (!outcome) return { kind: "confirmed", alreadyConfirmed: true, order: result, summaryMessage: null };
+    // El descuento cambia la disponibilidad que ven los demás borradores.
+    for (const productId of new Set(outcome.map((i) => i.productId!))) await refreshDraftWarnings(productId);
 
     const summary = await sendOutboundMessage({
       conversationId: order.conversationId,

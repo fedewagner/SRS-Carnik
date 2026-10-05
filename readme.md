@@ -14,14 +14,14 @@ Pedidos por WhatsApp para carnicerías, redactados por AI y confirmados por una 
 | **Repositorio** | https://github.com/fedewagner/SRS-Carnik |
 | **URL de la demo** | https://srs-carnik-production.up.railway.app · las credenciales de prueba se entregan por el formulario, no en el repositorio público |
 | **Stack** | Next.js 15 (App Router) · Prisma 6 · PostgreSQL 16 · Claude API · Railway |
-| **Alcance** | Piso de 17 tareas más dos incrementos: WhatsApp real vía Twilio y ajuste de líneas · ver la tabla de abajo |
-| **Estado** | Flujo E2E desplegado y funcionando por WhatsApp real. 53 tests y un E2E en verde en CI |
+| **Alcance** | Piso de 17 tareas más tres incrementos: WhatsApp real vía Twilio, ajuste de líneas y gestión del catálogo · ver la tabla de abajo |
+| **Estado** | Flujo E2E desplegado y funcionando por WhatsApp real. 73 tests y dos E2E en verde |
 
 El documento combina dos capas. **§1.3, §1.4, §2.4, §2.6 y §7 describen lo implementado y verificado**; el resto es el diseño de la Entrega 1, derivado de `openspec/changes/bootstrap-carnik/`, que sigue siendo válido para lo que está fuera de esta entrega.
 
 ### Alcance entregado frente a especificado
 
-La entrega se adelantó a dos días de trabajo sin código escrito. El plan de 28 tareas (~20 h) no entraba, así que se replanificó a un **piso de 17 tareas (~10 h)** ejecutando el orden de caída pre-comprometido del `proposal.md` hasta el escalón 3. Lo que no está es una decisión registrada en `tasks.md`, no una omisión. Con el piso desplegado, se sumaron dos incrementos, cada uno como change propio de `openspec/`: el canal de WhatsApp real (`add-whatsapp-twilio-channel`) y el ajuste de líneas (`add-order-line-adjustment`).
+La entrega se adelantó a dos días de trabajo sin código escrito. El plan de 28 tareas (~20 h) no entraba, así que se replanificó a un **piso de 17 tareas (~10 h)** ejecutando el orden de caída pre-comprometido del `proposal.md` hasta el escalón 3. Lo que no está es una decisión registrada en `tasks.md`, no una omisión. Con el piso desplegado, se sumaron tres incrementos, cada uno como change propio de `openspec/`: el canal de WhatsApp real (`add-whatsapp-twilio-channel`), el ajuste de líneas (`add-order-line-adjustment`) y la gestión del catálogo con libro de existencias (`add-catalog-management`).
 
 | Historia | Qué es | Estado |
 |---|---|:-:|
@@ -36,9 +36,11 @@ La entrega se adelantó a dos días de trabajo sin código escrito. El plan de 2
 | `US-01` | Recibir pedidos por WhatsApp | ✅ · vía **Twilio WhatsApp Sandbox**, no Meta (ver §2.4) |
 | `US-08` | Ajustar, eliminar y añadir líneas del borrador | ✅ · más asignación manual de producto a menciones sin reconocer y columna de stock disponible |
 | `US-03` | Límite de mensajes por remitente | ⏭ el sandbox sólo admite participantes unidos con código; vuelve a ser necesario con un número propio |
-| `US-09` | Corrección de existencias desde la línea | ⏭ |
+| `US-15` | Catálogo: alta de producto, precio, ingreso y reajuste de existencias con libro de movimientos | ✅ · el cambio de precio revalora los borradores; el reajuste descuenta lo comprometido hoy |
+| `US-09` | Corrección de existencias desde la línea | ↪ reemplazada por el reajuste de `US-15` |
 | `US-12` | Mensaje manual del empleado | ⏭ |
 | `US-13` | Cola de armado en `/dashboard` | ⏭ escalón 2 del orden de caída |
+| `US-16` | Venta sugerida (*upsell*) desde el detalle del pedido | ⏭ Could, anotada al especificar `US-15` |
 
 ---
 
@@ -637,8 +639,11 @@ sequenceDiagram
 | `Order` | Editar en `CONFIRMED` | ❌ | ❌ | ❌ **prohibido por estado** |
 | `OrderItem` | Crear, editar o borrar en `DRAFT` | ✅ | ✅ | ❌ |
 | `Product` | Leer | ✅ | ✅ | ❌ |
-| `Product` | Ajustar `stockQuantity` | ✅ | ✅ | ❌ |
-| `Product` | Crear o borrar | ❌ sembrado | ❌ | ❌ |
+| `Product` | Ingreso y reajuste de `stockQuantity` | ✅ | ✅ | ❌ |
+| `Product` | Crear y cambiar `pricePerUnitCents` | ✅ | ❌ | ❌ |
+| `Product` | Borrar | ❌ | ❌ | ❌ |
+| `StockMovement` | Leer | ✅ | ✅ | ❌ |
+| `StockMovement` | Editar o borrar | ❌ | ❌ | ❌ **inmutable para todos** |
 | Canal de simulación | Usar | ✅ | ✅ | ❌ |
 
 > Al construir esta matriz apareció una contradicción en `proposal.md`, que listaba el simulador como exclusivo de `ADMIN` mientras el spec `whatsapp-conversation` tiene un escenario con `EMPLOYEE`. **Corregido en `proposal.md`**; la fuente válida es el spec.
@@ -837,7 +842,7 @@ Las doce historias restantes de §5 no tienen ficha completa y por tanto no apar
 
 ## 3. Modelo de datos
 
-Siete entidades. Cada una existe porque al menos una historia de §5 la necesita; no hay ninguna previsora. Los nombres coinciden exactamente con los de §1.2 y §5.
+Ocho entidades. Cada una existe porque al menos una historia de §5 la necesita; no hay ninguna previsora. Los nombres coinciden exactamente con los de §1.2 y §5.
 
 ### Diagrama entidad-relación
 
@@ -852,6 +857,9 @@ erDiagram
     User         |o--o{ Order        : "confirma via confirmedByUserId"
     Order        ||--|{ OrderItem    : "se compone de"
     Product      |o--o{ OrderItem    : "se resuelve a"
+    Product      ||--o{ StockMovement : "explica sus existencias"
+    User         ||--o{ StockMovement : "origina"
+    Order        |o--o{ StockMovement : "descuenta via orderId"
 
     User {
         String id PK
@@ -916,11 +924,25 @@ erDiagram
         Decimal stockQuantity "not null, default 0, precision 10 escala 3"
         Boolean isActive "not null, default true"
     }
+
+    StockMovement {
+        String id PK
+        String productId FK "not null"
+        String userId FK "not null"
+        String orderId FK "nullable, solo ORDER_CONFIRMED"
+        StockMovementType type "not null, enum(INTAKE, COUNT_ADJUSTMENT, ORDER_CONFIRMED)"
+        Decimal previousQuantity "not null"
+        Decimal quantityDelta "not null"
+        Decimal resultingQuantity "not null"
+        Decimal countedQuantity "nullable, solo COUNT_ADJUSTMENT"
+        Decimal committedQuantity "nullable, solo COUNT_ADJUSTMENT"
+        String reason "nullable, obligatorio en COUNT_ADJUSTMENT"
+    }
 ```
 
 **Relación N:M resuelta.** `Order` y `Product` son N:M en el dominio —un pedido lleva varios productos, un producto aparece en varios pedidos— y se resuelve con `OrderItem` como entidad asociativa. `OrderItem` no es una tabla puente pura: lleva atributos propios (`quantity`, `unitPriceCents`, `lineTotalCents`, `rawText`, `hasStockWarning`), que es precisamente lo que obliga a modelarla como entidad y no como relación implícita.
 
-**Fuera del diagrama, a propósito.** Cada tabla lleva `createdAt` y `updatedAt` gestionados por Prisma (`@default(now())` y `@updatedAt`), que se omiten arriba para no ensuciar el ER. **Una excepción importante:** `Message.createdAt` **no es sólo metadato** — es el campo sobre el que `US-03` cuenta los mensajes de la ventana para aplicar el límite por cliente, así que tiene un índice compuesto con `conversationId`. `Order.confirmedAt` y `Conversation.lastInboundAt` sí aparecen en el diagrama porque son datos de negocio, no marcas del sistema. No hay tablas de auditoría ni de log: la trazabilidad de quién confirmó qué vive en `Order.confirmedByUserId` y `Order.confirmedAt`.
+**Fuera del diagrama, a propósito.** Cada tabla lleva `createdAt` y `updatedAt` gestionados por Prisma (`@default(now())` y `@updatedAt`), que se omiten arriba para no ensuciar el ER. **Una excepción importante:** `Message.createdAt` **no es sólo metadato** — es el campo sobre el que `US-03` cuenta los mensajes de la ventana para aplicar el límite por cliente, así que tiene un índice compuesto con `conversationId`. `Order.confirmedAt` y `Conversation.lastInboundAt` sí aparecen en el diagrama porque son datos de negocio, no marcas del sistema. La única tabla de registro es `StockMovement` (`US-15`), que explica cada variación de existencias y no lleva `updatedAt` porque nunca se edita; la trazabilidad de quién confirmó qué sigue viviendo en `Order.confirmedByUserId` y `Order.confirmedAt`.
 
 ### Entidades
 
@@ -997,7 +1019,7 @@ Línea de pedido. Entidad asociativa entre `Order` y `Product`, con atributos pr
 | `hasStockWarning` | Boolean | not null, default false | La cantidad supera el `stockQuantity` disponible |
 
 #### `Product`
-Catálogo con sus existencias. Se siembra; no hay CRUD en el MVP.
+Catálogo con sus existencias. Se siembra, y desde `US-15` el `ADMIN` da de alta productos y cambia precios en `/admin/products`; no hay baja ni edición de nombre o unidad.
 
 | Atributo | Tipo | Restricciones | Descripción |
 |---|---|---|---|
@@ -1008,6 +1030,20 @@ Catálogo con sus existencias. Se siembra; no hay CRUD en el MVP.
 | `pricePerUnitCents` | Int | not null | Precio vigente por unidad, en céntimos |
 | `stockQuantity` | Decimal(10,3) | not null, default 0 | Existencias. **Nunca por debajo de cero** |
 | `isActive` | Boolean | not null, default true | Un producto inactivo no se propone, pero los pedidos históricos lo conservan |
+
+#### `StockMovement`
+Libro de existencias (`US-15`). Un asiento por cada variación de `Product.stockQuantity`, insertado en la misma transacción que la produce. Inmutable.
+
+| Atributo | Tipo | Restricciones | Descripción |
+|---|---|---|---|
+| `id` | String | PK, cuid | Identificador |
+| `productId` | String | FK → `Product`, not null | Índice compuesto con `createdAt` para el historial |
+| `type` | `StockMovementType` | not null | `INTAKE` (envasado o alta), `COUNT_ADJUSTMENT` (conteo físico) u `ORDER_CONFIRMED` (descuento al confirmar) |
+| `previousQuantity`, `quantityDelta`, `resultingQuantity` | Decimal(10,3) | not null | Antes, variación y después. **El `resultingQuantity` del último asiento coincide con `stockQuantity`** |
+| `countedQuantity`, `committedQuantity` | Decimal(10,3) | nullable | Sólo en el reajuste: lo contado y lo comprometido hoy en pedidos confirmados; disponible = contado − comprometido |
+| `reason` | String | nullable | Motivo; obligatorio en el reajuste (validado en servidor) |
+| `userId` | String | FK → `User`, not null | Quién lo originó; en `ORDER_CONFIRMED`, quien confirmó |
+| `orderId` | String | FK → `Order`, nullable | Pedido que lo originó, sólo en `ORDER_CONFIRMED` |
 
 ### Enumeraciones
 
@@ -1105,15 +1141,16 @@ Las dos consecuencias, dichas en voz alta:
 
 | Entidad | Historias que la usan |
 |---|---|
-| `User` | `US-06` (autenticación), `US-10` (`confirmedByUserId`), `US-11` y `US-12` (`sentByUserId`) |
+| `User` | `US-06` (autenticación), `US-10` (`confirmedByUserId`), `US-11` y `US-12` (`sentByUserId`), `US-15` (autor del movimiento) |
 | `Customer` | `US-01` (alta e identificación), `US-07` (detalle), `US-13` (cola) |
 | `Conversation` | `US-01`, `US-07`, `US-11`, `US-12` |
 | `Message` | `US-01`, `US-02`, `US-03`, `US-11`, `US-12` |
-| `Product` | `US-04a`, `US-04b`, `US-05`, `US-09`, `US-10` |
+| `Product` | `US-04a`, `US-04b`, `US-05`, `US-10`, `US-15` |
+| `StockMovement` | `US-10` (`ORDER_CONFIRMED`), `US-15` |
 | `Order` | `US-04a`, `US-04b`, `US-05`, `US-07`, `US-08`, `US-10`, `US-13` |
 | `OrderItem` | `US-04a`, `US-04b`, `US-05`, `US-08`, `US-10` |
 
-**Cada escritura de las historias tiene dónde ir.** Recorrido completo: `US-01` escribe `Customer`, `Conversation` y `Message`; `US-02` escribe `Message` con `channel` `SIMULATOR`; `US-03` sólo lee, contando por `conversationId` y `createdAt`; `US-04a`/`US-04b` escriben `Order` y `OrderItem`, incluido `draftedBy`; `US-05` escribe `unitPriceCents`, `lineTotalCents`, `totalCents` y `hasStockWarning`; `US-06` sólo lee `User`; `US-07` sólo lee; `US-08` escribe y borra `OrderItem`; `US-09` escribe `Product.stockQuantity`; `US-10` escribe `Order.status`, `confirmedAt`, `confirmedByUserId` y decrementa `Product.stockQuantity`; `US-11` y `US-12` escriben `Message` con `direction` `OUTBOUND` y su `status`; `US-13` sólo lee.
+**Cada escritura de las historias tiene dónde ir.** Recorrido completo: `US-01` escribe `Customer`, `Conversation` y `Message`; `US-02` escribe `Message` con `channel` `SIMULATOR`; `US-03` sólo lee, contando por `conversationId` y `createdAt`; `US-04a`/`US-04b` escriben `Order` y `OrderItem`, incluido `draftedBy`; `US-05` escribe `unitPriceCents`, `lineTotalCents`, `totalCents` y `hasStockWarning`; `US-06` sólo lee `User`; `US-07` sólo lee; `US-08` escribe y borra `OrderItem`; `US-10` escribe `Order.status`, `confirmedAt`, `confirmedByUserId`, decrementa `Product.stockQuantity` y registra un `StockMovement` por línea; `US-15` crea `Product`, escribe `pricePerUnitCents` (y revalora `OrderItem` y `Order.totalCents` en borrador) y `stockQuantity` con su `StockMovement`; `US-11` y `US-12` escriben `Message` con `direction` `OUTBOUND` y su `status`; `US-13` sólo lee.
 
 **Dos huecos que hay que resolver al implementar**, ninguno exige cambiar el esquema:
 
@@ -2068,12 +2105,14 @@ Ordenada por posición en el flujo E2E, no por identificador.
 | `US-05` | Valorar el pedido contra el catálogo y las existencias | 3 · Valoración en servidor | Must | No |
 | `US-07` | Ver el detalle y confirmar en dos toques | 4 · Notificación y decisión humana | Must | **Sí** |
 | `US-08` | Ajustar las líneas de un pedido antes de confirmarlo | 5 · Ajuste | Must | No |
-| `US-09` | Corregir las existencias desde la propia línea | 5 · Ajuste | Must | No |
+| `US-09` | Corregir las existencias desde la propia línea | 5 · Ajuste | ~~Must~~ reemplazada por `US-15` | No |
 | `US-12` | Responder al cliente desde el detalle del pedido | 6 · Diálogo · opcional en el flujo | Must | No |
 | `US-10` | Confirmar el pedido descontando las existencias | 7 · Confirmación · nudo del flujo | Must | No |
 | `US-11` | Respuesta al cliente | 8 · Valor entregado al cliente | Must | **Sí** |
 | `US-13` | Ver la cola de armado en la pantalla del local | 9 · Armado en el local | Must | No |
 | `US-14` | Responder consultas simples de precio y disponibilidad | Fuera del flujo E2E | **Could** | No · fuera del MVP por no ser estimable ni testeable |
+| `US-15` | Gestionar el catálogo, sus precios y sus existencias | Transversal · mantiene vigentes los datos contra los que se valora cada pedido | Must | No · spec en `openspec/changes/add-catalog-management/` |
+| `US-16` | Sugerir productos alternativos o complementarios (*upsell*) | 5 · Ajuste | **Could** | No |
 
 ### US-14 sale del MVP: pasa a Could-Have
 

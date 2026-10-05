@@ -12,6 +12,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         <nav className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-3">
           <span className="font-bold text-red-800">Carnik</span>
           <Link href="/admin/orders" className="text-sm hover:underline">Pedidos</Link>
+          <Link href="/admin/products" className="text-sm hover:underline">Catálogo</Link>
           {simulator && <Link href="/simulator" className="text-sm hover:underline">Simulador WhatsApp</Link>}
           <form action={logout} className="ml-auto">
             <button className="text-sm text-stone-500 hover:underline">Salir</button>

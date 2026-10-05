@@ -37,20 +37,27 @@ enum DraftOrigin {
   FALLBACK
 }
 
+enum StockMovementType {
+  INTAKE
+  COUNT_ADJUSTMENT
+  ORDER_CONFIRMED
+}
+
 enum ProductUnit {
   WEIGHT_KG
   PIECE
 }
 
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
+  id              String          @id @default(cuid())
+  email           String          @unique
   passwordHash    String
   role            UserRole
   sentMessages    Message[]
   confirmedOrders Order[]
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  stockMovements  StockMovement[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 }
 
 model Customer {
@@ -93,23 +100,24 @@ model Message {
 }
 
 model Order {
-  id                String       @id @default(cuid())
-  reference         String       @unique
+  id                String          @id @default(cuid())
+  reference         String          @unique
   customerId        String
   conversationId    String
-  sourceMessageId   String       @unique
+  sourceMessageId   String          @unique
   confirmedByUserId String?
-  status            OrderStatus  @default(DRAFT)
+  status            OrderStatus     @default(DRAFT)
   draftedBy         DraftOrigin
-  totalCents        Int          @default(0)
+  totalCents        Int             @default(0)
   confirmedAt       DateTime?
-  customer          Customer     @relation(fields: [customerId], references: [id])
-  conversation      Conversation @relation(fields: [conversationId], references: [id])
-  sourceMessage     Message      @relation(fields: [sourceMessageId], references: [id])
-  confirmedBy       User?        @relation(fields: [confirmedByUserId], references: [id])
+  customer          Customer        @relation(fields: [customerId], references: [id])
+  conversation      Conversation    @relation(fields: [conversationId], references: [id])
+  sourceMessage     Message         @relation(fields: [sourceMessageId], references: [id])
+  confirmedBy       User?           @relation(fields: [confirmedByUserId], references: [id])
   items             OrderItem[]
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  stockMovements    StockMovement[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   @@index([status, createdAt])
 }
@@ -130,14 +138,37 @@ model OrderItem {
 }
 
 model Product {
-  id                String      @id @default(cuid())
-  slug              String      @unique
+  id                String          @id @default(cuid())
+  slug              String          @unique
   name              String
   unit              ProductUnit
   pricePerUnitCents Int
-  stockQuantity     Decimal     @default(0) @db.Decimal(10, 3)
-  isActive          Boolean     @default(true)
+  stockQuantity     Decimal         @default(0) @db.Decimal(10, 3)
+  isActive          Boolean         @default(true)
   orderItems        OrderItem[]
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  stockMovements    StockMovement[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+/// Libro de movimientos de existencias (D1). Se inserta en la misma transacción que modifica
+/// Product.stockQuantity y nunca se edita: por eso no lleva updatedAt.
+model StockMovement {
+  id                String            @id @default(cuid())
+  productId         String
+  type              StockMovementType
+  previousQuantity  Decimal           @db.Decimal(10, 3)
+  quantityDelta     Decimal           @db.Decimal(10, 3)
+  resultingQuantity Decimal           @db.Decimal(10, 3)
+  countedQuantity   Decimal?          @db.Decimal(10, 3)
+  committedQuantity Decimal?          @db.Decimal(10, 3)
+  reason            String?
+  userId            String
+  orderId           String?
+  product           Product           @relation(fields: [productId], references: [id])
+  user              User              @relation(fields: [userId], references: [id])
+  order             Order?            @relation(fields: [orderId], references: [id])
+  createdAt         DateTime          @default(now())
+
+  @@index([productId, createdAt])
 }
