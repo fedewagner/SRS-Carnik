@@ -72,6 +72,8 @@ El webhook ingiere, redacta el borrador (LLM con timeout de 8 s y fallback) y en
 
 Tras `createDraftOrder`, `ingestInboundMessage` llama a `sendOutboundMessage` con un texto fijo que **no** compromete precios ni disponibilidad, como exige el spec. Sólo se envía cuando se crea un borrador, no cuando el mensaje se suma a uno abierto: el cliente que añade algo no recibe un segundo acuse. Un fallo de envío no deshace el borrador.
 
+**Ajuste durante la implementación:** con `WHATSAPP_TRANSPORT=twilio`, un borrador creado desde el simulador habría enviado el acuse por Twilio a un número inventado. El transporte real sólo se usa si el último mensaje entrante de la conversación llegó por WhatsApp; las conversaciones del simulador se registran con canal `SIMULATOR` y nunca salen a la red.
+
 *Trade-off:* `ingest.ts` pasa a conocer el transporte saliente. Es el mismo módulo `core/messaging` que ya lo contiene; no introduce dependencia del proveedor.
 
 ### T7 — Adjuntos: registro sin contenido y respuesta pidiendo texto

@@ -21,7 +21,9 @@ export async function POST(req: Request) {
   }
 
   const result = await ingestInboundMessage({ ...parsed.data, channel: "SIMULATOR" });
-  if (result.status === "duplicate") return NextResponse.json({ duplicate: true });
+  if (result.status === "duplicate" || result.status === "unsupported") {
+    return NextResponse.json({ duplicate: result.status === "duplicate", order: null });
+  }
   if (result.status === "appended") {
     return NextResponse.json({ messageId: result.messageId, appendedToOrderId: result.openOrderId, order: null });
   }
