@@ -127,12 +127,12 @@ export function OrderLineRow({
       </td>
       <td
         data-testid="line-stock"
-        className={`px-4 py-2 ${line.hasStockWarning && editable ? "font-medium text-red-700" : "text-stone-600"}`}
+        className={`whitespace-nowrap px-4 py-2 ${line.hasStockWarning && editable ? "font-medium text-red-700" : "text-stone-600"}`}
       >
         {line.product ? `${Number(line.product.stockQuantity)} ${unitLabel(line.product.unit)}` : "—"}
       </td>
-      <td className="px-4 py-2">{line.product ? chf(line.unitPriceCents) : "—"}</td>
-      <td className="px-4 py-2 text-right">
+      <td className="whitespace-nowrap px-4 py-2">{line.product ? chf(line.unitPriceCents) : "—"}</td>
+      <td className="whitespace-nowrap px-4 py-2 text-right">
         {chf(line.lineTotalCents)}
         {editable && (
           <form action={remove}>

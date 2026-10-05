@@ -75,7 +75,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
             <tfoot>
               <tr className="border-t border-stone-200 font-bold">
                 <td className="px-4 py-2" colSpan={4}>Total</td>
-                <td data-testid="order-total" className="px-4 py-2 text-right">{formatChf(order.totalCents)}</td>
+                <td data-testid="order-total" className="whitespace-nowrap px-4 py-2 text-right">{formatChf(order.totalCents)}</td>
               </tr>
             </tfoot>
           </table>
