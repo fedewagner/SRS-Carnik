@@ -7,6 +7,7 @@ import type { DraftResult } from "@/core/drafting/types";
 import { createDraftOrder } from "@/core/orders/createDraft";
 import { findLastConfirmedOrder, repeatLines } from "@/core/orders/repeat";
 import { sendOutboundMessage } from "./outbound";
+import { enforceMessageLimit } from "./rateLimit";
 import {
   REPEAT_OFFER_PREFIX,
   ackReply,
@@ -24,7 +25,8 @@ export type IngestResult =
   | { status: "appended"; messageId: string; openOrderId: string }
   | { status: "drafted"; messageId: string; order: Awaited<ReturnType<typeof createDraftOrder>> }
   | { status: "replied"; messageId: string; intent: Exclude<Intent, "ORDER">; reply: string }
-  | { status: "unsupported"; messageId: string };
+  | { status: "unsupported"; messageId: string }
+  | { status: "rate_limited"; messageId: string; reply: string | null };
 
 /**
  * Punto único de entrada para todo mensaje entrante, venga del simulador o de un proveedor (D6).
@@ -42,6 +44,10 @@ export async function ingestInboundMessage(msg: InboundMessage): Promise<IngestR
     select: { id: true },
   });
   if (openOrder) return { status: "appended", messageId: message.id, openOrderId: openOrder.id };
+
+  // Límite por remitente antes de invocar al intérprete (US-03); el mensaje ya quedó registrado.
+  const limited = await enforceMessageLimit(conversation.id);
+  if (limited) return { status: "rate_limited", messageId: message.id, reply: limited.reply };
 
   const catalog = await db.product.findMany({
     where: { isActive: true },
