@@ -15,7 +15,7 @@ Pedidos por WhatsApp para carnicerías, redactados por AI y confirmados por una 
 | **URL de la demo** | https://srs-carnik-production.up.railway.app · las credenciales de prueba se entregan por el formulario, no en el repositorio público |
 | **Stack** | Next.js 15 (App Router) · Prisma 6 · PostgreSQL 16 · Claude API · Railway |
 | **Alcance** | Piso de 17 tareas más dos incrementos: WhatsApp real vía Twilio y ajuste de líneas · ver la tabla de abajo |
-| **Estado** | Flujo E2E desplegado y funcionando por WhatsApp real. 53 tests y un E2E en verde en CI |
+| **Estado** | Flujo E2E desplegado y funcionando por WhatsApp real. 85 tests y un E2E en verde en CI |
 
 El documento combina dos capas. **§1.3, §1.4, §2.4, §2.6 y §7 describen lo implementado y verificado**; el resto es el diseño de la Entrega 1, derivado de `openspec/changes/bootstrap-carnik/`, que sigue siendo válido para lo que está fuera de esta entrega.
 
@@ -35,6 +35,7 @@ La entrega se adelantó a dos días de trabajo sin código escrito. El plan de 2
 | `US-11` | Acuse al recibir y resumen al confirmar | ✅ · llegan al WhatsApp del cliente |
 | `US-01` | Recibir pedidos por WhatsApp | ✅ · vía **Twilio WhatsApp Sandbox**, no Meta (ver §2.4) |
 | `US-08` | Ajustar, eliminar y añadir líneas del borrador | ✅ · más asignación manual de producto a menciones sin reconocer y columna de stock disponible |
+| — | Respuestas según la intención: saludo, consulta y «lo de siempre» | ✅ · change `add-conversational-replies` |
 | `US-03` | Límite de mensajes por remitente | ⏭ el sandbox sólo admite participantes unidos con código; vuelve a ser necesario con un número propio |
 | `US-09` | Corrección de existencias desde la línea | ⏭ |
 | `US-12` | Mensaje manual del empleado | ⏭ |
@@ -128,6 +129,19 @@ Recorrido real en producción, capturado en https://srs-carnik-production.up.rai
 **6 · Corrección antes de confirmar (`US-08`).** En borrador, cada cantidad se edita en su línea y cada línea se puede eliminar; abajo se añaden productos del catálogo. A una mención que la AI no reconoció —aquí «2 kg de cordero», que no está en el catálogo— se le asigna un producto con el desplegable, conservando el texto original. La columna **Stock disponible** muestra las existencias actuales, que ya descuentan los pedidos confirmados, y se marca en rojo cuando la línea las supera.
 
 ![Línea sin reconocer y stock disponible](docs/screenshots/06-linea-sin-reconocer.png)
+
+#### Qué responde el chat
+
+La AI clasifica cada mensaje en la misma llamada que interpreta el pedido; el texto que recibe el cliente sale siempre de plantillas con datos de la base, nunca redactado por el modelo.
+
+| El cliente escribe | Responde Carnik | ¿Crea pedido? |
+|---|---|:-:|
+| «Hola, quiero hacer un pedido» | «¡Hola Anna! ¿Qué te preparamos hoy?» con un ejemplo. Si ya compró antes: «¿Lo de siempre? 2 kg Entrecot y 6 u. Salchicha Lyoner. Respondé «sí» y lo anotamos» | No |
+| «Sí» después de esa sugerencia, o «lo de siempre» | Repite el último pedido confirmado **a precios y stock de hoy** y lo enumera | Sí |
+| «2 kg de entrecot y 2 kg de cordero» | «Anotamos: 2 kg Entrecot. Revisamos a mano: «2 kg de cordero»» — sin precios | Sí |
+| «¿Abren el sábado?» | «Una persona del equipo te responde en breve» | No |
+
+**Ante la duda, pedido:** si el mensaje menciona un producto, se abre un borrador aunque la AI lo haya clasificado como saludo. Así una mala clasificación nunca pierde una venta en silencio, que fue el motivo por el que la `US-14` había salido del MVP.
 
 #### Probarlo desde WhatsApp
 
@@ -733,7 +747,7 @@ Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las die
 
 ### 2.6 Tests
 
-#### Suite implementada · 53 tests y un E2E en verde
+#### Suite implementada · 85 tests y un E2E en verde
 
 | Nivel | Fichero | Qué verifica |
 |---|---|---|
@@ -745,6 +759,8 @@ Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las die
 | Integración | `tests/integration/twilio-webhook.test.ts` (9) | Firma válida → borrador y acuse · firma inválida, ausente o con un parámetro alterado → `403` sin escrituras · **firma hecha para otra URL con `X-Forwarded-*` imitando la configurada → `403`** · sin credenciales → `403` (fallo cerrado) · reintento del mismo `MessageSid` sin duplicados · adjunto sin pedido y con respuesta pidiendo texto · remitente malformado → `400` |
 | Integración | `tests/integration/outbound-transport.test.ts` (3) | Transporte `twilio` con el SDK sustituido: envío registrado con el SID del proveedor · fallo de Twilio → `FAILED` sin lanzar · **una conversación del simulador nunca sale a la red** |
 | Integración | `tests/integration/edit-lines.test.ts` (10) | Ajuste de cantidad recalcula importe, total y aviso · cantidad cero, negativa o fraccionaria en piezas rechazada · añadir y eliminar recalculan el total · asignar producto a una mención sin reconocer · un pedido confirmado no admite ediciones · la cantidad editada es la que se descuenta · server action sin sesión rechazada |
+| Unitario | `tests/unit/intent.test.ts` (17) · `tests/unit/replies.test.ts` (5) | Intención por reglas y afirmaciones breves; plantillas sin precios y sin reenviar un nombre de perfil sospechoso |
+| Integración | `tests/integration/conversational-replies.test.ts` (10) | Saludo sin pedido; el saludo no bloquea el pedido siguiente; sugerencia con historial; «sí» tras la sugerencia repite a precios de hoy; «sí» sin sugerencia no crea nada; sin historial; producto inactivo excluido; consulta; instrucción embebida que no llega a la respuesta |
 | E2E | `tests/e2e/order-flow.spec.ts` (1) | Login → simulador → borrador valorado → detalle con la conversación y el acuse → **asigna un producto a «1 kg de cordero»** → **ajusta el entrecot a 1,5 kg** → confirmación → existencias descontadas con la cantidad editada y resumen visible |
 
 **Lo que el diseño de abajo preveía y esta suite no cubre**, por estar fuera del alcance entregado: el webhook de Meta (sustituido por el de Twilio, cubierto arriba), badge con polling, corrección de existencias y `/dashboard`. La recepción real por WhatsApp no corre en CI: se verificó con mensajes desde un teléfono. Tampoco hay test del `LlmOrderDrafter` en CI, deliberadamente: la suite corre con `ORDER_DRAFTER=rules`. La AI se verificó a mano contra los mismos cuatro mensajes que el intérprete por reglas, incluido el intento de fijar el precio, y en el recorrido de producción de §1.3.
@@ -2363,6 +2379,7 @@ Sólo comodidad: se comprueba que hay al menos una línea y que ninguna está si
 | [#3](https://github.com/fedewagner/SRS-Carnik/pull/3) | `feature-entrega2-FJW` | **Entrega 2 · MVP ejecutable.** Esquema y migración, login, simulador, interpretación con AI y fallback, backoffice y confirmación transaccional, 26 tests, CI y despliegue en Railway. Un commit por historia | Mergeado |
 | [#4](https://github.com/fedewagner/SRS-Carnik/pull/4) | `feature-entrega3-FJW` | **Documentación de la entrega.** README con lo verificado, capturas de producción y `prompts.md` de la implementación | Mergeado |
 | #5 | `feature-whatsapp-twilio-FJW` | **WhatsApp real vía Twilio** (`US-01`, `US-11`). Webhook con firma, transporte saliente y acuse automático | Abierto |
+| #7 | `feature-smart-replies-FJW` | **Respuestas según la intención** y «lo de siempre» (`add-conversational-replies`) | Abierto |
 | #6 | `feature-us08-FJW` | **Ajuste de líneas** (`US-08`), asignación de producto a menciones sin reconocer, columna de stock disponible y este README | Abierto, apilado sobre #5 |
 
 **Por qué se revirtió una contribución de CodeRabbit.** Un commit del bot (`50b52a8`) entró en `main` con la Entrega 1 y ampliaba el alcance sin una decisión de producto detrás: un outbox con reconciliación de estados, un estado `ASSEMBLED` y un filtro de intención convertido en Must-have, que contradecía el análisis INVEST por el que `US-14` había salido del MVP (§5). Sumaba entre 4 y 6 horas a un plan que ya no tenía margen. Se revirtió en el PR #3, y con él `us-patron.md`, una historia de otro dominio que no pertenecía al proyecto.

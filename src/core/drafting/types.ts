@@ -1,5 +1,5 @@
 import type { ProductUnit } from "@prisma/client";
-import type { DraftLine } from "./schema";
+import type { DraftLine, Intent } from "./schema";
 
 export type CatalogEntry = {
   slug: string;
@@ -8,6 +8,7 @@ export type CatalogEntry = {
 };
 
 export type DraftResult = {
+  intent: Intent;
   lines: DraftLine[];
   origin: "AI" | "FALLBACK";
 };
