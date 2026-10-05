@@ -24,6 +24,9 @@ export async function POST(req: Request) {
   if (result.status === "duplicate" || result.status === "unsupported") {
     return NextResponse.json({ duplicate: result.status === "duplicate", order: null });
   }
+  if (result.status === "replied") {
+    return NextResponse.json({ messageId: result.messageId, intent: result.intent, reply: result.reply, order: null });
+  }
   if (result.status === "appended") {
     return NextResponse.json({ messageId: result.messageId, appendedToOrderId: result.openOrderId, order: null });
   }

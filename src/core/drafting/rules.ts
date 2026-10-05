@@ -1,4 +1,5 @@
 import { PRODUCT_ALIASES } from "./aliases";
+import { intentByRules } from "./intent";
 import type { DraftLine } from "./schema";
 import type { CatalogEntry, DraftResult, OrderDrafter } from "./types";
 
@@ -63,6 +64,6 @@ export class RuleBasedOrderDrafter implements OrderDrafter {
       if (PRICE_TALK.test(segment) && !segment.match(QUANTITY)?.[2]) continue;
       lines.push({ productSlug: entry?.slug ?? null, rawText: rawTextOf(original), quantity });
     }
-    return { lines, origin: "FALLBACK" };
+    return { intent: intentByRules(text, lines.length), lines, origin: "FALLBACK" };
   }
 }
