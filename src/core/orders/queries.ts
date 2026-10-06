@@ -11,6 +11,11 @@ export function listOrders(status?: OrderStatus) {
   });
 }
 
+/** Pedidos que esperan confirmación; lo consulta el badge de la navegación cada 10 s (D13). */
+export function countPendingOrders() {
+  return db.order.count({ where: { status: "DRAFT" } });
+}
+
 export function getOrderDetail(id: string) {
   return db.order.findUnique({
     where: { id },
