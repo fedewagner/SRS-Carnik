@@ -1,6 +1,18 @@
 # Prompts · SRS-Carnik
 
-Registro de los prompts que produjeron la especificación de `openspec/`, el `readme.md` y, en las Entregas 2 y 3, el código. Se incluyen los de creación inicial y las correcciones más relevantes, no las respuestas.
+Registro de los prompts que produjeron la especificación de `openspec/`, el `readme.md` y, en las Entregas 2 y 3, el código. Se incluyen los de creación inicial y las correcciones más relevantes, no las respuestas. Cada prompt va seguido del **criterio aplicado**: qué se aceptó, qué se corrigió y qué se descartó.
+
+> **Nota de edición:** los prompts de la Entrega 1 se reproducen literalmente. Los de las Entregas 2 y 3 se escribieron de forma conversacional durante la implementación; aquí se presentan con estructura y redacción editadas, conservando su intención, su alcance y sus restricciones, sin añadir ninguna que no estuviera en el original.
+
+## Índice
+
+1. [Herramientas y modelos](#herramientas-y-modelos)
+2. [Configuración del agente](#configuración-del-agente) y [reglas](#reglas-y-cómo-se-comprueban)
+3. [Prompt persistente del proyecto](#prompt-persistente-del-proyecto--openspecconfigyaml)
+4. Entrega 1: [Producto](#sección-1--producto) · [Arquitectura](#secciones-2126--arquitectura) · [Modelo de datos](#sección-3--modelo-de-datos) · [API](#sección-4--api) · [Historias](#sección-5--historias-de-usuario) · [Tickets](#sección-6--tickets-de-trabajo)
+5. [Criterio humano: correcciones al modelo](#criterio-humano--dónde-se-equivocó-el-modelo-y-qué-decidí)
+6. [Entregas 2 y 3: implementación](#entregas-2-y-3--implementación)
+7. [Pull requests](#sección-7--pull-requests) y [trazabilidad](#trazabilidad-por-entrega)
 
 ---
 
@@ -18,6 +30,39 @@ Registro de los prompts que produjeron la especificación de `openspec/`, el `re
 | **CLIs `gh` y `railway`** | PRs, estado del CI, alta de PostgreSQL, variables, dominio, despliegue y seed dentro del contenedor (`railway ssh`) |
 
 > **Nota de alcance:** `claude-opus-5` aparece con dos papeles distintos. Como **modelo del asistente** que escribió esta documentación, y como **modelo del producto**, en `LlmOrderDrafter`. No conviene confundirlos al leer `design.md`.
+
+---
+
+## Configuración del agente
+
+Lo que condiciona al agente vive en el repositorio, no en la memoria de una sesión: cualquiera que clone el proyecto trabaja con las mismas reglas.
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Instrucciones | `CLAUDE.md` (`AGENTS.md` apunta a él) | Comandos, arquitectura, siete reglas que no se negocian y el flujo de trabajo |
+| Prompt persistente | `openspec/config.yaml` | Contexto de producto que OpenSpec inyecta en cada artefacto (ver abajo) |
+| Skills y comandos | `.claude/skills/openspec-*`, `.claude/commands/opsx/` | Ciclo `propose → apply → archive` |
+| Subagente | `.claude/agents/spec-reviewer.md` | Revisor adversarial de solo lectura que compara el diff con `openspec/specs/` |
+| Calibración del revisor | `REVIEW.md` | Siete categorías graves, tres menores como máximo, formato del informe |
+| Revisión en CI | `.github/workflows/ai-review.yml` | El mismo revisor comenta cada PR con `claude-code-action`; no bloquea |
+| Hook del agente | `.claude/hooks/guard-env.sh` | `PreToolUse`: impide que el agente lea o escriba un `.env` |
+| Decisiones | `docs/adr/` | Cinco ADR con las decisiones que el agente no puede deducir del código |
+
+## Reglas y cómo se comprueban
+
+Una regla escrita sólo en un prompt depende de que el modelo la recuerde. Cada una de estas tiene además un mecanismo que la hace cumplir.
+
+| Regla | Dónde vive | Quién la comprueba |
+|---|---|---|
+| La AI propone, nunca escribe | `CLAUDE.md` 1 · ADR 0002 | `catalog-answers` y `conversational-replies` con instrucciones embebidas en el mensaje; revisor (grave 1) |
+| Confirmación transaccional | `CLAUDE.md` 2 | `tests/integration/confirm-order.test.ts`; revisor (grave 2) |
+| Dinero en céntimos | `CLAUDE.md` 3 · ADR 0004 | Tipos de Prisma y `tests/unit/pricing.test.ts`; revisor (grave 3) |
+| Firma contra `TWILIO_WEBHOOK_URL` | `CLAUDE.md` 4 · ADR 0003 | `tests/integration/twilio-webhook.test.ts` con `X-Forwarded-*` manipuladas |
+| Ningún `.env` en un commit | `CLAUDE.md` 5 · ADR 0005 | `.githooks/pre-commit` |
+| El agente no toca secretos | `CLAUDE.md` 5 | Hook `PreToolUse` `guard-env.sh` |
+| Dependencias sin vulnerabilidades altas | `SECURITY.md` | `npm audit --omit=dev --audit-level=high` en CI |
+| Tests sin red | `CLAUDE.md` 6 | CI corre con `ORDER_DRAFTER=rules` y `WHATSAPP_TRANSPORT=log`, sin credenciales |
+| Specs coherentes | `CLAUDE.md` · flujo | `openspec validate --specs` antes de archivar |
 
 ---
 
@@ -118,7 +163,7 @@ RESTRICCIÓN
 No me digas que es viable si no lo es. Prefiero recortar ahora que en septiembre.
 ```
 
-**Cómo lo guié:** la restricción final es la que hizo el trabajo — sin ella la respuesta habría sido un plan optimista. Pedí explícitamente *«sé pesimista»* en la estimación y un número, no una valoración. El resultado fue 43–58 h frente a 22, y **acepté el recorte de 7 capacidades a 3**. Descarté la propuesta de mantener el dashboard y la website como capacidades propias.
+**Criterio aplicado:** La restricción final fue decisiva; sin ella, la respuesta habría sido un plan optimista. Pedí explícitamente *«sé pesimista»* en la estimación y un número, no una valoración. El resultado fue 43–58 h frente a 22, y **acepté el recorte de 7 capacidades a 3**. Descarté la propuesta de mantener el dashboard y la website como capacidades propias.
 
 ### Prompt 1.2 · Fundación del MVP con seguridad desde el diseño
 
@@ -152,7 +197,7 @@ Declara tus supuestos explícitamente. Si falta un dato que afecta al diseño,
 pregúntame en vez de asumirlo.
 ```
 
-**Cómo lo guié:** la última línea provocó que el asistente **parara antes de escribir** y señalara una contradicción de mi propio brief: el flujo mencionaba stock y pantalla del local, que no estaban en las must-have. Elegí **stock como campo sin pantalla** y **dashboard como vista filtrada**, descartando las opciones de CRUD completo y kiosco propio. Eso eliminó una entidad y una capacidad.
+**Criterio aplicado:** La última línea provocó que el asistente **parara antes de escribir** y señalara una contradicción de mi propio brief: el flujo mencionaba stock y pantalla del local, que no estaban en las must-have. Elegí **stock como campo sin pantalla** y **dashboard como vista filtrada**, descartando las opciones de CRUD completo y kiosco propio. Eso eliminó una entidad y una capacidad.
 
 ### Prompt 1.3 · Redacción de §1 con diagrama obligatorio
 
@@ -183,7 +228,7 @@ pasos que ejecuta el usuario y los que ejecuta el sistema, y añade una leyenda.
 Reescríbelo en clave de producto, no en clave de propuesta de cambio.
 ```
 
-**Cómo lo guié:** *«en clave de producto, no de propuesta de cambio»* fue la corrección clave — el primer material sonaba a documento interno. La comparación explícita contra **Excel y email** forzó un argumento competitivo concreto en vez de un discurso de beneficios. Y el límite de 8 nodos obligó a resolver la leyenda en un subgrafo aparte para no gastar cupo del flujo.
+**Criterio aplicado:** *«en clave de producto, no de propuesta de cambio»* fue la corrección clave — el primer material sonaba a documento interno. La comparación explícita contra **Excel y email** forzó un argumento competitivo concreto en vez de un discurso de beneficios. Y el límite de 8 nodos obligó a resolver la leyenda en un subgrafo aparte para no gastar cupo del flujo.
 
 ---
 
@@ -221,7 +266,7 @@ No propongas microservicios, colas ni caché distribuida salvo que puedas
 justificar que son imprescindibles para el flujo E2E en 50 horas.
 ```
 
-**Cómo lo guié:** *«si no hay ninguno, no has elegido nada»* es la frase que evitó una sección de sacrificios de compromiso; salieron siete, dos de ellos con impacto en el usuario final. Subí deliberadamente la restricción de 22 a **50 horas** para comprobar si el asistente cambiaba de recomendación por complacencia: mantuvo el monolito y explicó que con 50 h gastaría el margen en tests, no en infraestructura.
+**Criterio aplicado:** *«si no hay ninguno, no has elegido nada»* es la frase que evitó una sección de sacrificios de compromiso; salieron siete, dos de ellos con impacto en el usuario final. Subí deliberadamente la restricción de 22 a **50 horas** para comprobar si el asistente cambiaba de recomendación por complacencia: mantuvo el monolito y explicó que con 50 h gastaría el margen en tests, no en infraestructura.
 
 ### Prompt 2.2 · Infraestructura, despliegue y secretos
 
@@ -254,7 +299,7 @@ RESTRICCIÓN
 Nada de valores reales en el documento.
 ```
 
-**Cómo lo guié:** exigir el **«marca en qué punto se ejecutan las migraciones»** destapó que corren en dos sitios distintos —CI y arranque del contenedor— y que confundirlos es el origen del fallo típico. Sobre `.gitignore` **rechacé la confirmación**: el fichero no existe todavía, así que quedó como pendiente de verificar con el comando de comprobación, en vez de afirmar algo no comprobado.
+**Criterio aplicado:** Exigir el **«marca en qué punto se ejecutan las migraciones»** destapó que corren en dos sitios distintos —CI y arranque del contenedor— y que confundirlos es el origen del fallo típico. Sobre `.gitignore` **rechacé la confirmación**: el fichero no existe todavía, así que quedó como pendiente de verificar con el comando de comprobación, en vez de afirmar algo no comprobado.
 
 ### Prompt 2.3 · Seguridad anclada al proyecto, no genérica
 
@@ -296,7 +341,7 @@ prevista. Sé honesto: marca como "prevista" lo que no vaya a estar en el MVP en
 lugar de fingir que está cubierto.
 ```
 
-**Cómo lo guié:** *«qué archivo, qué endpoint, qué tabla»* es lo que separó esta sección de un checklist. La exigencia de marcar lo **previsto** produjo 4 previstas y 2 parciales sobre 16 riesgos, incluida la admisión de que **no hay revocación de sesión** y de que **`/login` no tiene límite de intentos**. Descarté la tentación de dibujar el 403 como si fuera alcanzable: con dos roles no lo es, y así quedó anotado en el propio diagrama.
+**Criterio aplicado:** *«qué archivo, qué endpoint, qué tabla»* es lo que separó esta sección de un checklist. La exigencia de marcar lo **previsto** produjo 4 previstas y 2 parciales sobre 16 riesgos, incluida la admisión de que **no hay revocación de sesión** y de que **`/login` no tiene límite de intentos**. Descarté la tentación de dibujar el 403 como si fuera alcanzable: con dos roles no lo es, y así quedó anotado en el propio diagrama.
 
 ---
 
@@ -341,7 +386,7 @@ VERIFICA
 - Que los nombres coincidan exactamente con los de §1 y §5.
 ```
 
-**Cómo lo guié:** *«Solo lo que esas historias necesitan, nada más»* más la verificación de participación por entidad. El apartado de aislamiento produjo la respuesta más útil: **no hay campo que aísle nada y es deliberado**, con la consecuencia dicha en voz alta —una sesión comprometida expone todos los clientes—. Descarté sacar `Message.createdAt` del diagrama sin más: se omitió del ER pero quedó señalado en texto porque es el campo sobre el que se calcula el límite por cliente.
+**Criterio aplicado:** *«Solo lo que esas historias necesitan, nada más»* más la verificación de participación por entidad. El apartado de aislamiento produjo la respuesta más útil: **no hay campo que aísle nada y es deliberado**, con la consecuencia dicha en voz alta —una sesión comprometida expone todos los clientes—. Descarté sacar `Message.createdAt` del diagrama sin más: se omitió del ER pero quedó señalado en texto porque es el campo sobre el que se calcula el límite por cliente.
 
 ### Prompt 3.2 · Corrección tras la revisión de coherencia
 
@@ -351,7 +396,7 @@ VERIFICA
 eliminarla.
 ```
 
-**Cómo lo guié:** en una iteración anterior el modelo tenía `OrderStatusHistory` y un valor `REJECTED` en el enum de estado. La comprobación demostró que **`REJECTED` no aparecía en ningún Requirement ni escenario** y que la tabla de historial duplicaba dos campos ya presentes en `Order`. Se eliminaron ambos: el modelo bajó de 8 a 7 entidades y la transacción de confirmación de 3 pasos a 2.
+**Criterio aplicado:** En una iteración anterior el modelo tenía `OrderStatusHistory` y un valor `REJECTED` en el enum de estado. La comprobación demostró que **`REJECTED` no aparecía en ningún Requirement ni escenario** y que la tabla de historial duplicaba dos campos ya presentes en `Order`. Se eliminaron ambos: el modelo bajó de 8 a 7 entidades y la transacción de confirmación de 3 pasos a 2.
 
 ---
 
@@ -394,7 +439,7 @@ DESPUÉS
 - Justifica en 3 líneas por qué estos 3 endpoints y no otros.
 ```
 
-**Cómo lo guié:** el *«donde proceda, y explica por qué»* de la regla de no revelar existencia fue deliberado: quería ver si el asistente aplicaba el patrón por reflejo. Su primera respuesta lo aplicó de forma tibia y **acepté la explicación de por qué no encajaba** —sin modelo de propiedad, un 404 no oculta nada—, en vez de forzar un patrón decorativo. La verificación de campos prohibidos se hizo por nombre de propiedad, no por búsqueda de texto.
+**Criterio aplicado:** El *«donde proceda, y explica por qué»* de la regla de no revelar existencia fue deliberado: quería ver si el asistente aplicaba el patrón por reflejo. Su primera respuesta lo aplicó de forma tibia y **acepté la explicación de por qué no encajaba** —sin modelo de propiedad, un 404 no oculta nada—, en vez de forzar un patrón decorativo. La verificación de campos prohibidos se hizo por nombre de propiedad, no por búsqueda de texto.
 
 ### Prompt 4.2 · Corrección: el endpoint que no era una frontera
 
@@ -404,10 +449,10 @@ DESPUÉS
 ¿Toda operación de §4 que toca datos de un usuario tiene su comprobación de
 autorización descrita en §2.5?
 [y después]
-que propones tu?
+¿Qué propones tú?
 ```
 
-**Cómo lo guié:** la pregunta abierta al final fue la más productiva del proyecto. El asistente propuso **eliminar `GET /api/orders/{orderId}` del contrato**, reconociendo que su propia justificación era errónea: el backoffice son Server Components que consultan la base por llamada de función, así que ahí no hay frontera HTTP. Se sustituyó por `POST /api/simulator/messages`, que sí lo es, ya estaba presupuestado, y **resultó mejor ejemplo de la regla de no revelar existencia** (404 con el canal apagado, aun autenticado). También se descartó `expectedTotalCents`, un parámetro que el asistente había inventado sin respaldo en ningún Requirement.
+**Criterio aplicado:** La pregunta abierta al final fue la más productiva del proyecto. El asistente propuso **eliminar `GET /api/orders/{orderId}` del contrato**, reconociendo que su propia justificación era errónea: el backoffice son Server Components que consultan la base por llamada de función, así que ahí no hay frontera HTTP. Se sustituyó por `POST /api/simulator/messages`, que sí lo es, ya estaba presupuestado, y **resultó mejor ejemplo de la regla de no revelar existencia** (404 con el canal apagado, aun autenticado). También se descartó `expectedTotalCents`, un parámetro que el asistente había inventado sin respaldo en ningún Requirement.
 
 ---
 
@@ -444,7 +489,7 @@ Mantén documentada la correspondencia: si un Requirement genera dos historias,
 dilo; si dos colapsan en una, dilo.
 ```
 
-**Cómo lo guié:** dos restricciones hicieron el trabajo. La de **valor medible** eliminó los «para mejorar la experiencia» y produjo aserciones que el E2E puede comprobar. Y la de **añadir el escenario que falte al spec, no solo a la historia**, es la que evitó que el readme y la especificación divergieran: al partir «Envío de mensajes» en dos historias apareció una mitad sin caso de borde, y se corrigió en `openspec/`.
+**Criterio aplicado:** Dos restricciones fueron decisivas. La de **valor medible** eliminó los «para mejorar la experiencia» y produjo aserciones que el E2E puede comprobar. Y la de **añadir el escenario que falte al spec, no solo a la historia**, es la que evitó que el readme y la especificación divergieran: al partir «Envío de mensajes» en dos historias apareció una mitad sin caso de borde, y se corrigió en `openspec/`.
 
 ### Prompt 5.2 · Autocrítica INVEST
 
@@ -456,7 +501,7 @@ entregables por separado.
 Sé crítico contigo mismo. Si dices que todas cumplen, no estás revisando.
 ```
 
-**Cómo lo guié:** cuatro palabras hicieron todo el trabajo: *«si dices que todas cumplen, no estás revisando»*. La primera versión daba las seis letras por buenas en las catorce historias. Tras el prompt aparecieron **10 fallos sobre 90 evaluaciones**, incluida la contradicción más incómoda: `design.md` llamaba al drafter con LLM *«un pozo sin fondo»* y el INVEST lo declaraba *«Estimable»*. **Acepté la división de `US-04` y rechacé las otras tres propuestas**, porque cuatro historias más de contabilidad no compran funcionalidad.
+**Criterio aplicado:** Una sola frase cambió el resultado: *«si dices que todas cumplen, no estás revisando»*. La primera versión daba las seis letras por buenas en las catorce historias. Tras el prompt aparecieron **10 fallos sobre 90 evaluaciones**, incluida la contradicción más incómoda: `design.md` llamaba al drafter con LLM *«un pozo sin fondo»* y el INVEST lo declaraba *«Estimable»*. **Acepté la división de `US-04` y rechacé las otras tres propuestas**, porque cuatro historias más de contabilidad no compran funcionalidad.
 
 ### Prompt 5.3 · Consolidación en tres fichas
 
@@ -487,7 +532,7 @@ QUÉ ESCRIBIR
 No inventes historias nuevas ni cambies los identificadores existentes.
 ```
 
-**Cómo lo guié:** el prompt nombraba `US-07b`, que **no existía**: era una división que yo mismo había rechazado en el paso anterior. El asistente paró antes de escribir y lo señaló en lugar de crearla en silencio, que habría contradicho el *«no inventes historias nuevas»* del propio prompt. Elegí trabajar con los identificadores reales.
+**Criterio aplicado:** El prompt nombraba `US-07b`, que **no existía**: era una división que yo mismo había rechazado en el paso anterior. El asistente paró antes de escribir y lo señaló en lugar de crearla en silencio, que habría contradicho el *«no inventes historias nuevas»* del propio prompt. Elegí trabajar con los identificadores reales.
 
 ---
 
@@ -520,7 +565,7 @@ NO escribas "implementar el backend". Si un ticket no cabe en una descripción
 concreta con nombres de archivo, pártelo.
 ```
 
-**Cómo lo guié:** la prohibición explícita de *«implementar el backend»* obligó a bajar al detalle. El ticket de base de datos fue el más productivo: en vez de limitarse a declarar modelos, salieron **dos restricciones `CHECK` escritas a mano en el SQL** porque el DSL de Prisma no las soporta, con criterios de aceptación invertidos —verificar que la base **rechace** una escritura ilegal—. Verifiqué que todas las rutas citadas existieran ya en `tasks.md`.
+**Criterio aplicado:** La prohibición explícita de *«implementar el backend»* obligó a bajar al detalle. El ticket de base de datos fue el más productivo: en vez de limitarse a declarar modelos, salieron **dos restricciones `CHECK` escritas a mano en el SQL** porque el DSL de Prisma no las soporta, con criterios de aceptación invertidos —verificar que la base **rechace** una escritura ilegal—. Verifiqué que todas las rutas citadas existieran ya en `tasks.md`.
 
 ### Prompt 6.2 · Revisión transversal de coherencia
 
@@ -545,7 +590,7 @@ Devuélveme una lista numerada de inconsistencias con propuesta de arreglo.
 NO modifiques el documento todavía.
 ```
 
-**Cómo lo guié:** el *«NO modifiques todavía»* separó diagnóstico de tratamiento y permitió decidir el criterio antes de tocar nada. La pregunta sobre las 50 horas produjo el hallazgo más valioso: **el readme había acumulado 4–5 h de trabajo fuera del presupuesto de 28 tareas**. Elegí el principio de que *el presupuesto no se mueve y el documento vuelve a él*, lo que se saldó quitando dos cosas inventadas y añadiendo cuatro casi gratuitas, con impacto neto sobre el presupuesto de **−0,15 h**.
+**Criterio aplicado:** El *«NO modifiques todavía»* separó diagnóstico de tratamiento y permitió decidir el criterio antes de tocar nada. La pregunta sobre las 50 horas produjo el hallazgo más valioso: **el readme había acumulado 4–5 h de trabajo fuera del presupuesto de 28 tareas**. Elegí el principio de que *el presupuesto no se mueve y el documento vuelve a él*, lo que se saldó quitando dos cosas inventadas y añadiendo cuatro casi gratuitas, con impacto neto sobre el presupuesto de **−0,15 h**.
 
 ---
 
@@ -643,32 +688,41 @@ Los nueve de arriba **no los detecta ninguna herramienta**: son coherencia entre
 ### Prompt I.1 · Priorización como Product Owner
 
 ```
-Ahora tengo que trabajar en la segunda y tercera entrega de este proyecto que
-adjunto en el PDF. Actúa como un experto product owner para la priorización de
-las tareas pendientes. Me gustaría que evalúes la documentación y las
-especificaciones y me ayudes a planificar el desarrollo de una primera entrega
-mínima porque no tengo el tiempo suficiente para incluir todas las features.
+Actúa como Product Owner experto en priorización.
+
+CONTEXTO
+- Adjunto las instrucciones oficiales de las Entregas 2 y 3 del proyecto.
+- La documentación y la especificación de la Entrega 1 están en el repositorio.
+- No hay tiempo suficiente para implementar todas las funcionalidades
+  especificadas.
+
+TAREA
+Evalúa la documentación y las especificaciones, prioriza las tareas pendientes
+y planifica una primera entrega mínima.
 ```
 
-Seguido, tras la primera propuesta (~14 h):
+Tras la primera propuesta (~14 h), una restricción adicional:
 
 ```
-Tenemos tiempo sólo hasta el martes para entregar. Dos días entonces solamente.
+RESTRICCIÓN DE PLAZO
+La entrega es el martes: quedan dos días de trabajo. Reajusta el plan a ese
+plazo.
 ```
 
-**Cómo lo guié:** adjunté las instrucciones oficiales del curso para que el recorte se midiera contra los ocho artefactos obligatorios y no contra el gusto técnico. La primera propuesta asumía las fechas del PDF; la segunda restricción la obligó a bajar a un piso de ~10 h y a declarar qué caía y en qué orden. **El asistente detectó por su cuenta** que un commit de CodeRabbit había ampliado el alcance en 4–6 h sin decisión de producto, y que `us-patron.md` era de otro proyecto. **Acepté** el piso de 17 tareas y que la integración real con Meta saliera del alcance —el escalón 3 del orden de caída que yo mismo había escrito en la Entrega 1—, y **mantuve el `LlmOrderDrafter`** aunque era lo primero que caía si el día 1 se retrasaba: sin él el producto pierde la premisa.
+**Criterio aplicado:** Adjunté las instrucciones oficiales del curso para que el recorte se midiera contra los ocho artefactos obligatorios y no contra el gusto técnico. La primera propuesta asumía las fechas del PDF; la restricción de plazo obligó a bajar a un piso de ~10 h y a declarar qué caía y en qué orden. **El asistente detectó por su cuenta** que un commit de CodeRabbit había ampliado el alcance en 4–6 h sin decisión de producto, y que `us-patron.md` era de otro proyecto. **Acepté** el piso de 17 tareas y que la integración real con Meta saliera del alcance —el escalón 3 del orden de caída que yo mismo había escrito en la Entrega 1—, y **mantuve el `LlmOrderDrafter`** aunque era lo primero que caía si el día 1 se retrasaba: sin él el producto pierde la premisa.
 
 ### Prompt I.2 · Ejecución del plan
 
 ```
-OK, hagamos eso entonces.
+Plan aprobado. Procede con la implementación.
 
-https://github.com/fedewagner/SRS-Carnik es público
-Railway ya está conectado al repo de GitHub
-Listo la API key en .env
+ENTORNO
+- Repositorio público: https://github.com/fedewagner/SRS-Carnik
+- Railway está conectado al repositorio de GitHub.
+- La API key de Anthropic está configurada en el .env local.
 ```
 
-**Cómo lo guié:** un prompt corto porque el contexto ya estaba fijado —la spec de la Entrega 1, el `tasks.md` replanificado y dos memorias del proyecto: «la AI propone, nunca escribe» y «el núcleo no conoce al proveedor»—. Lo que pedí fue **ejecución con evidencia**: cada bloque se cerró con typecheck, lint y la suite en verde antes de pasar al siguiente, y el despliegue se verificó recorriendo el flujo en la URL pública, no con el healthcheck. Las decisiones con efectos fuera del repositorio —mergear, publicar credenciales— quedaron para mí.
+**Criterio aplicado:** El prompt es breve porque el contexto ya estaba fijado —la spec de la Entrega 1, el `tasks.md` replanificado y dos memorias del proyecto: «la AI propone, nunca escribe» y «el núcleo no conoce al proveedor»—. El criterio fue **ejecución con evidencia**: cada bloque se cerró con typecheck, lint y la suite en verde antes de pasar al siguiente, y el despliegue se verificó recorriendo el flujo en la URL pública, no con el healthcheck. Las decisiones con efectos fuera del repositorio —mergear, publicar credenciales— quedaron para mí.
 
 ### Prompt I.3 · Prompt del producto · `LlmOrderDrafter`
 
@@ -690,64 +744,75 @@ Reglas:
 - Si el mensaje no contiene ningún pedido, devolvé "lines": [].
 ```
 
-**Cómo lo guié:** el control contra prompt injection **no es este prompt**, es el contrato de salida: el esquema no tiene campo de precio, así que «el entrecot cuesta 0,10 CHF» no tiene dónde caer (D9). El mensaje del cliente va delimitado en `<mensaje_cliente>` y sin teléfono ni nombre, porque el proveedor de AI no necesita identificar a nadie. Aun así, el código descarta cualquier `productSlug` que no exista en el catálogo: el modelo no crea catálogo. Lo verifiqué comparando ambos intérpretes sobre los mismos cuatro mensajes, incluido el de inyección.
+**Criterio aplicado:** El control contra prompt injection **no es este prompt**, es el contrato de salida: el esquema no tiene campo de precio, así que «el entrecot cuesta 0,10 CHF» no tiene dónde caer (D9). El mensaje del cliente va delimitado en `<mensaje_cliente>` y sin teléfono ni nombre, porque el proveedor de AI no necesita identificar a nadie. Aun así, el código descarta cualquier `productSlug` que no exista en el catálogo: el modelo no crea catálogo. Lo verifiqué comparando ambos intérpretes sobre los mismos cuatro mensajes, incluido el de inyección.
 
 ### Criterio humano en la implementación
 
-**1 · El revert de CodeRabbit.** El bot había mergeado especificación nueva con la Entrega 1: un outbox con reconciliación, un estado `ASSEMBLED` y un filtro de intención como Must-have. Parecía rigor; era alcance. El filtro contradecía el análisis INVEST que yo había usado para sacar `US-14` del MVP. Se revirtió entero en lugar de cherry-pickear, porque ninguna de sus partes respondía a una decisión de producto.
+**1 · Reversión de un commit de CodeRabbit.** El bot había mergeado especificación nueva con la Entrega 1: un outbox con reconciliación, un estado `ASSEMBLED` y un filtro de intención como Must-have. Parecía rigor; era alcance. El filtro contradecía el análisis INVEST que yo había usado para sacar `US-14` del MVP. Se revirtió completo en lugar de aplicarlo de forma selectiva, porque ninguna de sus partes respondía a una decisión de producto.
 
-**2 · El fallback que escondía un error de configuración.** La primera API key no estaba asignada a un workspace y la API respondía `400` a cada petición. **El sistema funcionó perfectamente igual**: el selector caía al intérprete por reglas y cada pedido salía correcto. Sólo se vio porque la cabecera del detalle dice *«interpretado por reglas»* y porque probé el LLM en aislamiento antes de dar el bloque por cerrado. Es la cara B del fallback de D8: hace al sistema robusto y, a la vez, **convierte un fallo total del componente de AI en algo invisible**. Queda como deuda una alerta cuando la tasa de `FALLBACK` supere un umbral.
+**2 · El fallback que escondía un error de configuración.** La primera API key no estaba asignada a un workspace y la API respondía `400` a cada petición. **El sistema siguió funcionando sin errores visibles**: el selector caía al intérprete por reglas y cada pedido salía correcto. Sólo se vio porque la cabecera del detalle dice *«interpretado por reglas»* y porque probé el LLM en aislamiento antes de dar el bloque por cerrado. Es la cara B del fallback de D8: hace al sistema robusto y, a la vez, **convierte un fallo total del componente de AI en algo invisible**. Queda como deuda una alerta cuando la tasa de `FALLBACK` supere un umbral.
 
-**3 · Bugs que encontró la ejecución, no la revisión.** Ninguno lo habría visto una lectura del código:
+**3 · Defectos detectados al ejecutar, no al revisar.** Ninguno habría aparecido en una lectura del código:
 
 - **La coma decimal partía líneas.** El separador de líneas incluía la coma, así que «0,10 CHF» se convertía en dos fragmentos. Apareció al correr el intérprete contra los ejemplos de la propia spec; se corrigió y quedó como test.
 - **El `.env` sin salto de línea final.** Añadir variables pegó `DATABASE_URL` al final de la API key. Lo delató Prisma al no encontrar la variable; se reparó sin imprimir el secreto.
 - **Un placeholder único que no lo era.** El borrador se creaba con `reference = "PENDING"` antes de conocer su id; dos pedidos simultáneos habrían chocado en el índice único. Detectado en revisión, antes de cualquier test.
 - **Fechas en UTC.** Las capturas de producción mostraban 19:47 en vez de 21:47: el servidor de Railway corre en UTC. Corregido fijando `Europe/Zurich`.
 
-**4 · Un control de seguridad que no se saltea.** El hook de pre-commit rechaza cualquier `.env*`, también `.env.example`, que no tiene secretos. La salida fácil era `--no-verify`. Se renombró a `env.example`: el hook es más valioso que la convención.
+**4 · Un control de seguridad sin excepciones.** El hook de pre-commit rechaza cualquier `.env*`, también `.env.example`, que no tiene secretos. La salida fácil era `--no-verify`. Se renombró a `env.example`: el hook es más valioso que la convención.
 
 **5 · `npm audit fix --force` no era la respuesta.** Proponía saltar a Next 16 a dos días de la entrega para cerrar vulnerabilidades de `postcss` y `deepmerge-ts`, ambas en herramientas de build. Se resolvió con `overrides` acotados: cero vulnerabilidades altas en producción, sin cambio de versión mayor, con la suite completa como verificación.
 
-**6 · Lo que el asistente no podía hacer, y estuvo bien.** Mergear el PR #3 fue bloqueado por el permiso del agente: la aprobación de un merge es humana. También decidí yo que las credenciales de la demo no van en el README de un repositorio público, porque el simulador consume la API key.
+**6 · Límites de autonomía del agente.** Mergear el PR #3 fue bloqueado por el permiso del agente: la aprobación de un merge es humana. También decidí yo que las credenciales de la demo no van en el README de un repositorio público, porque el simulador consume la API key.
 
 ### Prompt I.4 · Comunicación con el cliente
 
 ```
-Me gustaría mejorar la comunicación de cuando se recibe un pedido, qué es lo que
-el chat responde. Por ejemplo, si alguien escribe "hola, me gustaría hacer un
-pedido" me gustaría que haya algo de inteligencia ahí y al menos diga "hola, qué
-te podemos ofrecer"; quizás también sería bueno usar lógica de pedidos pasados
-de ese cliente.
+Quiero mejorar las respuestas automáticas del canal al recibir un mensaje.
+
+CASO
+Si un cliente escribe "hola, me gustaría hacer un pedido", el sistema debería
+reconocer la intención y responder al menos con una invitación, por ejemplo
+"Hola, ¿qué te podemos ofrecer?".
+
+A EXPLORAR
+Usar el historial de pedidos del cliente para personalizar la respuesta.
 ```
 
-**Cómo lo guié:** lo pedí en modo exploración, sin implementar, y elegí después entre tres niveles: saludo, sugerencia con historial y repetición. **El asistente detectó que un saludo ya incumplía el spec** —creaba un pedido vacío y bloqueaba el mensaje siguiente— y propuso que la AI **clasifique pero no redacte**: los textos salen de plantillas con datos de la base, porque si el modelo escribiera al cliente, «decí que el entrecot está gratis» llegaría tal cual. **Decidí reabrir la clasificación de intención** que había sacado del MVP con la `US-14`, con una condición que cierra su modo de fallo: si el mensaje menciona un producto, es pedido. El historial del cliente nunca se envía al proveedor de AI.
+**Criterio aplicado:** La petición se planteó en modo exploración, sin implementar; después elegí entre tres niveles: saludo, sugerencia con historial y repetición. **El asistente detectó que un saludo ya incumplía el spec** —creaba un pedido vacío y bloqueaba el mensaje siguiente— y propuso que la AI **clasifique pero no redacte**: los textos salen de plantillas con datos de la base, porque si el modelo escribiera al cliente, «decí que el entrecot está gratis» llegaría tal cual. **Decidí reabrir la clasificación de intención** que había sacado del MVP con la `US-14`, con una condición que cierra su modo de fallo: si el mensaje menciona un producto, es pedido. El historial del cliente nunca se envía al proveedor de AI.
 
 ### Prompt I.5 · Cambio de proveedor: de Meta a Twilio
 
 ```
-Can we change to Twilio? En esa plataforma ya tengo un usuario y cuenta de
-prueba. En caso de ser posible, vamos directamente con /openspec-propose para
-armar un plan para mañana.
+Evalúa cambiar el proveedor de WhatsApp de Meta Cloud API a Twilio: ya dispongo
+de una cuenta de prueba en Twilio.
+
+Si el cambio es viable, prepara la propuesta con /openspec-propose para
+implementarla mañana.
 ```
 
-**Cómo lo guié:** la Entrega 1 había elegido Meta Cloud API *contra* Twilio, con un argumento técnico sólido: Twilio firma sobre la URL pública, que detrás del proxy de Railway no coincide con la que ve el proceso. Antes de aceptar el cambio pedí que se revisara ese argumento. **El asistente no lo descartó: lo neutralizó** con una decisión de diseño —la firma se valida contra una variable fija, `TWILIO_WEBHOOK_URL`, nunca reconstruida desde cabeceras— y un test que manipula `X-Forwarded-*` para probarlo. Decidí el cambio por tres hechos que la Entrega 1 no tenía: la cuenta de Twilio ya existía, la app de Meta no, y en el sandbox de Twilio un evaluador puede probar desde su propio teléfono. El `TWILIO_AUTH_TOKEN` lo cargué yo directamente en Railway desde el móvil, para que no pasara por la conversación con el asistente.
+**Criterio aplicado:** La Entrega 1 había elegido Meta Cloud API *contra* Twilio, con un argumento técnico sólido: Twilio firma sobre la URL pública, que detrás del proxy de Railway no coincide con la que ve el proceso. Antes de aceptar el cambio pedí que se revisara ese argumento. **El asistente no lo descartó: lo neutralizó** con una decisión de diseño —la firma se valida contra una variable fija, `TWILIO_WEBHOOK_URL`, nunca reconstruida desde cabeceras— y un test que manipula `X-Forwarded-*` para probarlo. Decidí el cambio por tres hechos que la Entrega 1 no tenía: la cuenta de Twilio ya existía, la app de Meta no, y en el sandbox de Twilio un evaluador puede probar desde su propio teléfono. El `TWILIO_AUTH_TOKEN` lo cargué yo directamente en Railway desde el móvil, para que no pasara por la conversación con el asistente.
 
-### Prompt I.6 · Una noche de agentes en paralelo
+### Prompt I.6 · Implementación en paralelo con agentes
 
 ```
-¿Qué historias están abiertas? Me gustaría darle el go a todas esta noche y
-mañana revisar.
-
-1) US-12 no sólo el empleado sino también el admin
-   US-13 ok · US-03 ok · US-07 ok · US-14 ok
-2) ok
-3) como agentes
+Lista las historias abiertas. Quiero lanzar su implementación esta noche y
+revisar los resultados mañana.
 ```
 
-**Cómo lo guié:** cinco historias, cinco agentes en segundo plano, cada uno con una consigna escrita con las mismas reglas: **su propio worktree desde `main`, su propia base de test, OpenSpec antes que código, CI en verde y PR abierto; prohibido mergear, desplegar o tocar Railway, Twilio o la rama de entrega**. Tampoco podían tocar `readme.md` ni `prompts.md`, que habrían chocado entre los cinco; los consolidé después. Cada consigna listaba además los ficheros que tocaban los otros agentes, para que mantuvieran sus cambios acotados.
+Respuesta a las preguntas del plan propuesto:
 
-**Lo que revisé a la mañana siguiente**, porque cada agente lo dejó señalado en su informe en vez de decidirlo en silencio:
+```
+1. Alcance: US-13, US-03, US-07 y US-14 tal como están propuestas. US-12 se
+   amplía: el mensaje manual lo puede enviar también el ADMIN, no sólo el
+   EMPLOYEE.
+2. Orden propuesto: aprobado.
+3. Ejecución: un agente en segundo plano por historia.
+```
+
+**Criterio aplicado:** Cinco historias, asignadas a cinco agentes en segundo plano, cada uno con una consigna con las mismas reglas: **su propio worktree desde `main`, su propia base de test, OpenSpec antes que código, CI en verde y PR abierto; prohibido mergear, desplegar o tocar Railway, Twilio o la rama de entrega**. Tampoco podían tocar `readme.md` ni `prompts.md`, que habrían chocado entre los cinco; los consolidé después. Cada consigna listaba además los ficheros que tocaban los otros agentes, para que mantuvieran sus cambios acotados.
+
+**Revisión al día siguiente.** Cada agente dejó señaladas en su informe las decisiones que se apartaban de la spec, en vez de tomarlas en silencio:
 
 - **`US-14` aflojaba una regla mía.** «Ante la duda, pedido» pasó a tener una excepción: una pregunta de precio sin cantidad ni expresión de pedido recibe una respuesta en vez de un borrador. Lo acepté porque el mensaje no se pierde —el cliente recibe una invitación a pedir y queda en la conversación— y porque el agente añadió una red de seguridad determinista tras verificar 8 mensajes contra el modelo real y encontrar el caso que fallaba.
 - **`US-03` cambió un valor del diseño:** ventana de 10 minutos en vez de una hora, con el mismo techo horario de llamadas a la AI, para liberar antes a un cliente legítimo. Justificado en su design; aceptado.
@@ -759,12 +824,11 @@ La historia `US-15` (catálogo) la implementó otra sesión de trabajo en parale
 ### Prompt I.7 · De la demo a un cliente real
 
 ```
-Un posible cliente está usando WhatsApp ahora para vender en su móvil. ¿Cómo
-vamos a poder gestionar el hecho de conectar ese número de teléfono actual de
-WhatsApp con Twilio? ¿Puedo usar ese mismo número o debo cambiarlo por otro?
+Un posible cliente vende hoy por WhatsApp desde su móvil. ¿Cómo conectaríamos
+ese número a Twilio? ¿Puede conservar el mismo número o tiene que usar otro?
 ```
 
-**Cómo lo guié:** pedí que se verificara contra la documentación oficial y no contra la memoria del modelo. El resultado cambió la conversación: **Twilio exige borrar la cuenta de WhatsApp del número**, y la única forma de conservar la app en el móvil —la «coexistencia» de Meta— no la ofrece Twilio. Un primer resultado de búsqueda que lo afirmaba venía de un competidor de Twilio; se contrastó con la documentación de Twilio y de Meta antes de darlo por bueno. Como el vendedor querrá seguir usando su móvil, la exploración dejó tres preguntas de producto que **decidí llevar al vendedor antes de diseñar**: si el bot debe callar cuando él está atendiendo, si se siguen creando borradores en ese caso, y quién confirma. Queda como trabajo posterior a la entrega.
+**Criterio aplicado:** Exigí verificar la respuesta contra la documentación oficial y no contra la memoria del modelo. El resultado cambió el planteamiento: **Twilio exige borrar la cuenta de WhatsApp del número**, y la única forma de conservar la app en el móvil —la «coexistencia» de Meta— no la ofrece Twilio. Un primer resultado de búsqueda que lo afirmaba venía de un competidor de Twilio; se contrastó con la documentación de Twilio y de Meta antes de darlo por bueno. Como el vendedor querrá seguir usando su móvil, la exploración dejó tres preguntas de producto que **decidí llevar al vendedor antes de diseñar**: si el bot debe callar cuando él está atendiendo, si se siguen creando borradores en ese caso, y quién confirma. Queda como trabajo posterior a la entrega.
 
 ---
 
@@ -780,6 +844,19 @@ WhatsApp con Twilio? ¿Puedo usar ese mismo número o debo cambiarlo por otro?
 | [#7](https://github.com/fedewagner/SRS-Carnik/pull/7) · Respuestas | Prompt I.4 |
 | [#8](https://github.com/fedewagner/SRS-Carnik/pull/8) · Catálogo | Otra sesión de trabajo; conflictos con `main` resueltos al integrarlo |
 | [#9](https://github.com/fedewagner/SRS-Carnik/pull/9)–[#13](https://github.com/fedewagner/SRS-Carnik/pull/13) | Prompt I.6, un agente por PR |
-| [#14](https://github.com/fedewagner/SRS-Carnik/pull/14) · Documentación final | «¿Podrías actualizar el readme según lo que requiere el ejercicio?» |
+| [#14](https://github.com/fedewagner/SRS-Carnik/pull/14) · Documentación final | Actualización del readme contra los requisitos oficiales del ejercicio |
 
 El detalle de cada PR está en §7 del `readme.md`.
+
+---
+
+## Trazabilidad por entrega
+
+| Entrega | Objetivo | Prompts | Evidencia |
+|---|---|---|---|
+| 1 | Producto, arquitectura, datos, API, historias, tickets | Secciones 1 a 6 | `readme.md` §1–6, `docs/api/openapi.yaml`, `openspec/changes/archive/2026-10-06-bootstrap-carnik/` |
+| 2 | Implementación del piso de 17 tareas, tests, CI y despliegue | I.1, I.2, I.3 | PR #3, `.github/workflows/ci.yml`, demo en Railway |
+| 3 | WhatsApp real e incrementos | I.4 a I.7 | PRs #5–#13, nueve changes en `openspec/changes/archive/` |
+| Cierre | Specs vivas, configuración del agente, ADR | Auditoría de cierre contra los requisitos del curso | `openspec/specs/`, `CLAUDE.md`, `REVIEW.md`, `docs/adr/` |
+
+Al cierre, los diez changes se archivaron en orden de dependencia. Dos deltas (`add-catalog-answers`) habían renombrado escenarios existentes, y el archivado se negaba a aplicarlos porque habría borrado los originales en silencio. Se recuperaron los nombres originales con el comportamiento nuevo, que es el que implementa `src/core/messaging/ingest.ts`, en lugar de forzar el archivado.

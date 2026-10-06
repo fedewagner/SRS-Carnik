@@ -15,9 +15,9 @@ Pedidos por WhatsApp para carnicerías, redactados por AI y confirmados por una 
 | **URL de la demo** | https://srs-carnik-production.up.railway.app · las credenciales de prueba se entregan por el formulario, no en el repositorio público |
 | **Stack** | Next.js 15 (App Router) · Prisma 6 · PostgreSQL 16 · Claude API · Railway |
 | **Alcance** | Piso de 17 tareas más nueve incrementos, cada uno con su change de OpenSpec · 16 de 17 historias entregadas · ver la tabla de abajo |
-| **Estado** | Flujo E2E desplegado y funcionando por WhatsApp real. 204 tests y dos E2E en verde en CI |
+| **Estado** | Flujo E2E desplegado y funcionando por WhatsApp real. 214 tests y dos E2E en verde en CI |
 
-Todo el documento describe el sistema implementado y desplegado. Donde el diseño de la Entrega 1 se cambió —sobre todo el paso de Meta a Twilio— se indica el motivo. La especificación versionada vive en `openspec/changes/`: `bootstrap-carnik` y un change por cada incremento.
+Todo el documento describe el sistema implementado y desplegado. Donde el diseño de la Entrega 1 se cambió —sobre todo el paso de Meta a Twilio— se indica el motivo. La especificación versionada vive en `openspec/`: las specs vivas en `openspec/specs/` (cinco capacidades) y la historia de cada cambio en `openspec/changes/archive/`, con `bootstrap-carnik` y un change por incremento. Las decisiones que el código no explica están en `docs/adr/`, y las instrucciones del agente en `CLAUDE.md`.
 
 ### Alcance entregado frente a especificado
 
@@ -123,7 +123,7 @@ El dueño da de alta productos y cambia precios —que revaloran los borradores 
 
 ### 1.3 Diseño y experiencia de usuario
 
-Recorrido real en producción, capturado en https://srs-carnik-production.up.railway.app con el intérprete de AI activo.
+Recorrido completo con el intérprete de AI activo (Claude API) y la interfaz final del backoffice. Las capturas se generan con `scripts/capture-screenshots.mjs`, que recorre el flujo con Playwright sobre una base recién sembrada; el mismo recorrido está desplegado en https://srs-carnik-production.up.railway.app.
 
 **1 · Acceso.** No hay registro: el personal entra con las cuentas sembradas. Toda pantalla del backoffice redirige aquí sin sesión.
 
@@ -226,7 +226,7 @@ npm run db:seed                  # 8 productos y 2 usuarios
 npm run dev                      # http://localhost:3000
 ```
 
-El fichero de ejemplo se llama `env.example`, sin punto inicial: el hook de pre-commit del repositorio rechaza cualquier `.env*` para que un secreto no pueda llegar a un commit por descuido.
+El fichero de ejemplo se llama `env.example`, sin punto inicial: el hook de pre-commit del repositorio rechaza cualquier `.env*` para que un secreto no pueda llegar a un commit por descuido. Para activarlo tras clonar: `git config core.hooksPath .githooks`.
 
 Usuarios sembrados: `admin@carnik.test` (`ADMIN`) y `empleado@carnik.test` (`EMPLOYEE`), ambos con la contraseña de `SEED_PASSWORD`.
 
@@ -362,8 +362,14 @@ Los sacrificios 3 y 4 son los únicos que tocan al usuario final. Los demás son
 
 ```
 SRS-Carnik/
-├── .github/workflows/ci.yml           # auditoría, lint, typecheck, unit + integración, build, E2E
-├── openspec/changes/                  # bootstrap-carnik y un change por incremento (10 en total)
+├── .claude/                           # skills y comandos de OpenSpec, subagente spec-reviewer, hook guard-env
+├── .githooks/pre-commit               # rechaza cualquier .env* (activar con core.hooksPath)
+├── .github/workflows/
+│   ├── ci.yml                         # auditoría, lint, typecheck, unit + integración, build, E2E
+│   └── ai-review.yml                  # revisión del PR con Claude según REVIEW.md, no bloquea
+├── openspec/
+│   ├── specs/                         # specs vivas: 5 capacidades
+│   └── changes/archive/               # bootstrap-carnik y un change por incremento (10 en total)
 ├── prisma/
 │   ├── schema.prisma                  # las 8 entidades de §3
 │   ├── migrations/                    # init (con los dos CHECK a mano) y add_stock_movement
@@ -387,7 +393,7 @@ SRS-Carnik/
 │   │       ├── orders/assembly-queue/route.ts
 │   │       └── health/route.ts
 │   ├── core/                          # LÓGICA DE NEGOCIO — no importa Next.js ni Twilio
-│   │   ├── messaging/{types,ingest,outbound,replies,rateLimit,manual,catalog-answer}.ts
+│   │   ├── messaging/{types,ingest,outbound,replies,rateLimit,manual,catalogAnswer}.ts
 │   │   ├── drafting/{types,schema,intent,aliases,rules,llm,index}.ts
 │   │   ├── orders/{pricing,createDraft,editLines,repeat,confirm,queries,assemblyQueue}.ts
 │   │   └── catalog/{products,stock,committed,lock,queries}.ts
@@ -404,13 +410,18 @@ SRS-Carnik/
 │   ├── e2e/{order-flow,catalog}.spec.ts
 │   ├── env.ts · test.env              # variables de test, sin secretos
 │   └── global-setup.ts                # migraciones sobre la base de test
-├── docs/screenshots/                  # capturas de §1.3, tomadas en producción
+├── docs/                              # README.md con el índice de la carpeta
+│   ├── adr/                           # 5 decisiones de arquitectura
+│   ├── api/openapi.yaml               # contrato de §4
+│   └── screenshots/                   # capturas de §1.3, generadas con scripts/capture-screenshots.mjs
+├── scripts/capture-screenshots.mjs    # regenera las capturas de §1.3 con Playwright
 ├── env.example                        # variables, sin valores
 ├── railway.json · next.config.ts · vitest.config.ts · playwright.config.ts
-└── readme.md · prompts.md
+├── CLAUDE.md · AGENTS.md · REVIEW.md  # instrucciones del agente y criterio de revisión
+└── readme.md · prompts.md · SECURITY.md · LICENSE
 ```
 
-Respecto del diseño de la Entrega 1 cambió el adaptador de WhatsApp (`lib/whatsapp/*` de Meta → `lib/twilio/*`) y no existen `core/stock/adjust.ts` ni `SECURITY.md`: la corrección de existencias vive en `core/catalog/` y la seguridad está documentada en §2.5.
+Respecto del diseño de la Entrega 1 cambió el adaptador de WhatsApp (`lib/whatsapp/*` de Meta → `lib/twilio/*`) y no existe `core/stock/adjust.ts`: la corrección de existencias vive en `core/catalog/`. La seguridad está documentada en §2.5; `SECURITY.md` recoge lo operativo (cómo reportar, riesgos pendientes y registro de incidentes).
 
 #### Propósito de cada carpeta y a qué patrón obedece
 
@@ -651,10 +662,10 @@ sequenceDiagram
         else Entrada valida
             V->>H: datos tipados
             H->>D: UPDATE Order SET status=CONFIRMED<br/>WHERE id=? AND status=DRAFT
-            alt El estado del recurso prohibe la accion
+            alt El pedido ya no esta en borrador
                 D-->>H: 0 filas afectadas
-                H-->>N: 409 ORDER_NOT_DRAFT
-                Note over H,D: Autorizacion por ESTADO, no por pertenencia:<br/>este sistema no tiene modelo de propiedad
+                H-->>N: 200 OrderConfirmed con alreadyConfirmed=true
+                Note over H,D: Autorizacion por ESTADO, no por pertenencia:<br/>sin segundo descuento ni segundo resumen.<br/>Editar lineas en ese estado si se rechaza (ORDER_NOT_DRAFT)
             else Accion permitida
                 D-->>H: 1 fila, la transaccion continua
                 H-->>N: 200 OrderConfirmed
@@ -709,12 +720,12 @@ sequenceDiagram
 
 > Al construir esta matriz apareció una contradicción en `proposal.md`, que listaba el simulador como exclusivo de `ADMIN` mientras el spec `whatsapp-conversation` tiene un escenario con `EMPLOYEE`. **Corregido en `proposal.md`**; la fuente válida es el spec.
 
-**Dónde se comprueba:** `requireRole(['EMPLOYEE','ADMIN'])` en `src/lib/auth/guard.ts`, invocado **como primera línea de cada route handler y de cada server action** que toque datos: `src/app/admin/layout.tsx`, `src/app/admin/orders/[id]/actions.ts`, `src/app/api/orders/[orderId]/confirm/route.ts`, `src/app/api/orders/pending-count/route.ts`, `src/app/api/simulator/messages/route.ts`. **Nunca sólo en el frontend, y no hay middleware donde delegarlo:** los server actions de Next.js son endpoints HTTP públicos aunque el botón esté oculto.
+**Dónde se comprueba:** `requireRole(['EMPLOYEE','ADMIN'])` en `src/lib/auth/guard.ts`, invocado **como primera línea de cada route handler y de cada server action** que toque datos: `src/app/(staff)/layout.tsx`, `src/app/(staff)/admin/orders/[id]/actions.ts`, `src/app/(staff)/admin/products/actions.ts`, `src/app/(staff)/admin/products/[id]/actions.ts` y los cuatro route handlers con sesión de `src/app/api/` (confirmación, pendientes, cola de armado y simulador). **Nunca sólo en el frontend, y no hay middleware donde delegarlo:** los server actions de Next.js son endpoints HTTP públicos aunque el botón esté oculto.
 
 **Cómo se garantiza que un usuario no accede a recursos de otro.** La respuesta honesta es que **aquí no existe «de otro»**: es una sola carnicería, no hay `tenantId` ni columna de propiedad, y cualquier `EMPLOYEE` está autorizado sobre cualquier `Order` porque ése es el comportamiento correcto en un negocio de dos a seis personas (§3). Lo que sí se aplica:
 
 - **Autorización por estado, no por pertenencia.** La comprobación va **dentro de la misma escritura**: `UPDATE ... WHERE id = ? AND status = 'DRAFT'`. Cero filas afectadas significa «prohibido» sin una lectura previa que abriría una ventana de carrera.
-- **Identificadores no adivinables.** Las claves primarias son `cuid` de 25 caracteres, no enteros secuenciales. `Order.reference` se deriva de los seis últimos caracteres del propio `cuid` (`K2M4P0`) precisamente para que **tampoco** sea enumerable: un correlativo diario tipo `2026-08-01-003` sería legible pero permitiría recorrer el catálogo de pedidos probando números. Aun así, **la API no acepta nunca la referencia como parámetro de ruta**: `POST /api/orders/{orderId}/confirm` valida contra `^c[a-z0-9]{24}$`.
+- **Identificadores no adivinables.** Las claves primarias son `cuid` de 25 caracteres, no enteros secuenciales. `Order.reference` se deriva de los seis últimos caracteres del propio `cuid` (`K2M4P0`) precisamente para que **tampoco** sea enumerable: un correlativo diario tipo `2026-08-01-003` sería legible pero permitiría recorrer el catálogo de pedidos probando números. Aun así, **la API no acepta nunca la referencia como parámetro de ruta**: `POST /api/orders/{orderId}/confirm` valida contra `^c[a-z0-9]{20,32}$`.
 
 #### 3 · Validación de entrada
 
@@ -723,7 +734,7 @@ Todo dato que entra pasa por un esquema Zod en `src/lib/validation/`, **también
 | Punto de entrada | Qué se valida | Límite |
 |---|---|---|
 | `POST /api/webhooks/twilio` | `MessageSid`, remitente E.164, texto y adjuntos del formulario de Twilio. **Después de verificar la firma**, nunca antes | 4096 caracteres de texto |
-| `POST /api/simulator/messages` | Número de cliente y texto, tras `requireRole` y `SIMULATOR_ENABLED` | 32 KiB |
+| `POST /api/simulator/messages` | Número de cliente, nombre de perfil y texto, tras `SIMULATOR_ENABLED` y `requireRole` | 4096 caracteres de texto, 100 de nombre |
 | `POST /api/orders/{orderId}/confirm` | `orderId` contra el patrón `cuid`. Sin cuerpo | — |
 | `src/app/login/actions.ts` | Email y contraseña | 32 KiB |
 | `src/app/admin/orders/[id]/actions.ts` | Cantidad > 0, `productId` existente y activo, longitud del mensaje manual | 32 KiB |
@@ -761,9 +772,9 @@ Esa última fila es la menos obvia y la más importante: **la respuesta de un pr
 
 **CSRF.** La cookie es `sameSite=lax`, lo que bloquea los POST desde otro sitio, y los Server Actions de Next.js verifican origen por su cuenta. `sameSite=lax` sí permite la navegación GET de nivel superior, lo cual es seguro aquí porque **ninguna operación GET muta estado**. El webhook queda al margen del problema: no se autentica por cookie, así que un ataque CSRF contra él no tendría nada que robar — su control es la firma HMAC.
 
-**Rate limiting.** Implementado **por cliente en la ingesta** (`src/core/messaging/rateLimit.ts`), contando `Message` de la conversación en una ventana antes de invocar al proveedor de AI. **Lo que no está: `/login` no tiene límite de intentos.** Con dos cuentas y contraseñas fuertes sembradas el riesgo es menor, pero es un hueco real y va marcado **PREVISTA**.
+**Rate limiting.** Implementado **por cliente en la ingesta** (`src/core/messaging/rateLimit.ts`), contando `Message` de la conversación en una ventana antes de invocar al proveedor de AI. **En `/login`, por cuenta** (`src/lib/auth/loginThrottle.ts`): tras 5 fallos para un email se rechaza todo intento durante 15 minutos, y un email inexistente se verifica contra un hash señuelo para que el tiempo de respuesta no revele qué cuentas existen. El contador vive en memoria —Railway corre una instancia— y no se cuenta por IP, que el proxy puede falsear; a cambio, quien conozca un email puede bloquearlo temporalmente.
 
-**Cabeceras de seguridad.** En `next.config.ts`: `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` y `X-Frame-Options: DENY`. **Una CSP estricta con nonce por petición no entra en el MVP** — con App Router exige integrarse con el middleware y ajustar el `script-src` de Next.js, y es más trabajo del que parece. Marcada **parcial**.
+**Cabeceras de seguridad.** En `next.config.ts`: `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` y `X-Frame-Options: DENY`. En producción, además, una **CSP base**: `default-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'` y `frame-ancestors 'none'`, con `'unsafe-inline'` en `script-src` porque Next.js hidrata con scripts inline. **Una CSP estricta con nonce por petición no entra en el MVP** — con App Router exige integrarse con el middleware. Marcada **parcial**. `poweredByHeader: false` quita la cabecera `x-powered-by`.
 
 **Dependencias.** `npm audit --audit-level=high` como paso del workflow en `.github/workflows/ci.yml`, de modo que una vulnerabilidad alta o crítica pone el pipeline rojo. Sin Dependabot ni escáner externo: el proyecto tiene semanas de vida, no años.
 
@@ -771,7 +782,7 @@ Esa última fila es la menos obvia y la más importante: **la respuesta de un pr
 
 Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las diez variables, dónde vive cada una, el contenido de `env.example` y la política de rotación ante filtración.
 
-**Confirmación:** ningún secreto está en el código. Todos se leen de variables de entorno; `.env.example` se versiona **sin un solo valor**; `.env` va en `.gitignore` con `!.env.example` exceptuado; y **GitHub Secrets no guarda ninguna credencial real**, porque el pipeline corre con `WHATSAPP_TRANSPORT=log` y `ORDER_DRAFTER=rules` y no hace llamadas externas. Una filtración del repositorio no compromete nada de producción.
+**Confirmación:** ningún secreto está en el código. Todos se leen de variables de entorno; `env.example` se versiona **sin un solo valor** (sin punto inicial, ver ADR 0005); `.env` y `.env.*` van en `.gitignore`; y **GitHub Secrets no guarda ninguna credencial real**, porque el pipeline corre con `WHATSAPP_TRANSPORT=log` y `ORDER_DRAFTER=rules` y no hace llamadas externas. Una filtración del repositorio no compromete nada de producción.
 
 #### Tabla de riesgos
 
@@ -783,29 +794,30 @@ Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las die
 | Existencias negativas por confirmación concurrente | Media | Alto | `UPDATE` condicional dentro de una transacción | **Implementada** |
 | Bypass de autorización vía server action | Media | Alto | `requireRole` dentro de cada handler, nunca sólo en middleware | **Implementada** |
 | Simulador accesible en producción | Baja | Alto | `requireRole` **más** `SIMULATOR_ENABLED`; cubierto por el E2E | **Implementada** |
+| Cantidad desmesurada en un mensaje (`600000 kg`) desborda el total y el mensaje se pierde | Media | Medio | Tope de 1000 por línea: fuera de rango la línea queda sin valorar, para revisión manual (`isValidLineQuantity`) | **Implementada** |
 | Coste de AI disparado por abuso | Media | Medio | 10 mensajes cada 10 min por conversación, evaluado antes de invocar al proveedor (`US-03`) | **Implementada** |
 | XSS vía `Message.body` o `OrderItem.rawText` | Baja | Alto | Escape por defecto de React; `dangerouslySetInnerHTML` prohibido | **Implementada** |
-| Inyección SQL | Muy baja | Alto | Query builder de Prisma; `$queryRaw` prohibido | **Implementada** |
+| Inyección SQL | Muy baja | Alto | Query builder de Prisma; el SQL crudo (bloqueo `FOR UPDATE` y recálculo de avisos) sólo con plantillas etiquetadas, que parametrizan; las variantes `*Unsafe` no se usan en `src/` | **Implementada** |
 | Dependencia con vulnerabilidad conocida | Media | Medio | `npm audit --audit-level=high` en CI | **Implementada** |
-| **Fuerza bruta contra `/login`** | Media | Alto | Ninguna hoy. Haría falta límite por IP y por cuenta, con retardo progresivo | **PREVISTA — fuera del MVP** |
+| Fuerza bruta contra `/login` | Media | Alto | 5 fallos por cuenta cada 15 min, en memoria; hash señuelo contra la enumeración por tiempo. Falta límite por IP y persistencia entre reinicios | **Parcial** |
 | **Sesión robada sin poder revocarla** | Baja | Alto | TTL de 8 h y rotación de `SESSION_SECRET`. No hay revocación individual | **Parcial** |
 | **Volcado de base expone teléfonos y conversaciones** | Baja | Alto | Cifrado de volumen del proveedor. **Sin cifrado por campo** | **PREVISTA** |
 | **Sin retención, purga ni derecho de supresión (nLPD)** | Alta | Medio | Ninguna. Requiere ventana de retención, purga y endpoint de borrado | **PREVISTA — deuda declarada** |
-| **CSP estricta con nonce** | Media | Bajo | Cabeceras base sí; CSP completa no entra en el MVP | **Parcial** |
+| **CSP estricta con nonce** | Media | Bajo | CSP base en producción con `'unsafe-inline'`; la versión con nonce no entra en el MVP | **Parcial** |
 | **Sin DPA con Twilio ni con el proveedor de AI** | Alta | Medio | Ninguna. Es requisito de la nLPD para transferencia internacional | **PREVISTA — deuda declarada** |
 | **Dos empleados confirman un total distinto del que revisaron** | Baja | Bajo | Ninguna. Se consideró un guardia optimista —enviar el total en pantalla y rechazar si difiere— y **se descartó del MVP** por presupuesto. El `409 INSUFFICIENT_STOCK` atrapa el caso peligroso: confirmar más cantidad de la que hay | **PREVISTA — descartada a propósito** |
 
-**Cinco riesgos previstos y dos parciales, sobre dieciséis.** Los cuatro que de verdad quitarían el sueño con clientes reales son los dos de cumplimiento —retención y DPA—, el volcado de base sin cifrado por campo, y la fuerza bruta en el login. Ninguno de los cuatro se resuelve con código del MVP: tres son trabajo legal y de proceso, y el cuarto son dos horas que hoy no existen. Están escritos aquí y en `SECURITY.md` en lugar de dejarlos implícitos.
+**Cuatro riesgos previstos y tres parciales, sobre diecisiete.** Los tres que de verdad quitarían el sueño con clientes reales son los dos de cumplimiento —retención y DPA— y el volcado de base sin cifrado por campo: son trabajo legal y de proceso, no código del MVP. La fuerza bruta en el login quedó mitigada por cuenta; falta el límite por IP. Están escritos aquí y en `SECURITY.md` en lugar de dejarlos implícitos.
 
 ### 2.6 Tests
 
-#### Suite implementada · 204 tests y dos E2E en verde
+#### Suite implementada · 214 tests y dos E2E en verde
 
-**Unitarios · 98 tests, sin base de datos**
+**Unitarios · 105 tests, sin base de datos**
 
 | Fichero | Qué verifica |
 |---|---|
-| `pricing.test.ts` (7) | Importe por línea con redondeo half-up (1001 × 0,333 → 333; × 0,500 → 501; × 0,667 → 668), sin coma flotante; cantidades válidas por unidad; formato CHF |
+| `pricing.test.ts` (9) | Importe por línea con redondeo half-up (1001 × 0,333 → 333; × 0,500 → 501; × 0,667 → 668), sin coma flotante; cantidades válidas por unidad; formato CHF; tope que impide desbordar el total en céntimos |
 | `rules-drafter.test.ts` (24) | El ejemplo canónico; gramos y «medio kilo»; coma decimal; mención sin resolver; **«el entrecot cuesta 0,10 CHF» no genera línea**; productos consultados sin cantidad; red de seguridad que promueve a pedido una consulta con expresión de pedido |
 | `intent.test.ts` (19) | Intención por reglas (saludo, consulta, «lo de siempre», pedido) y afirmaciones breves |
 | `replies.test.ts` (8) | Plantillas sin precios en el acuse, sin reservas en la respuesta de catálogo y sin reenviar un nombre de perfil sospechoso |
@@ -813,12 +825,14 @@ Ver **§2.4 · Gestión de secretos**, que contiene la tabla completa de las die
 | `manual-message-schema.test.ts` (5) | Mensaje manual vacío, sólo espacios o por encima de 1600 caracteres |
 | `pending-badge.test.ts` (13) | Ante un fallo conserva el último valor y lo marca desactualizado; **nunca muestra un cero inventado** |
 | `assembly-queue.test.ts` (16) | Medianoche de Zúrich (invierno, verano, día del cambio de hora), nombre de pila, formato de cantidades, refresco fallido |
+| `login-throttle.test.ts` (3) | Bloqueo de `/login` tras el máximo de fallos y liberación al cerrar la ventana; un acierto borra los fallos; cada email se cuenta por separado |
+| `openapi-contract.test.ts` (2) | `docs/api/openapi.yaml` documenta exactamente los route handlers que existen y cada código de error que emiten |
 
-**Integración · 106 tests, contra PostgreSQL**
+**Integración · 109 tests, contra PostgreSQL**
 
 | Fichero | Qué verifica |
 |---|---|
-| `confirm-order.test.ts` (8) | **C1** confirma, descuenta y envía el resumen · **C2** stock insuficiente: `409` con la línea y rollback completo · **C3** dos confirmaciones concurrentes descuentan una vez · el `CHECK` rechaza stock negativo por SQL directo · idempotencia por `providerMessageId` |
+| `confirm-order.test.ts` (11) | **C1** confirma, descuenta y envía el resumen · **C2** stock insuficiente: `409` con la línea y rollback completo · **C3** dos confirmaciones concurrentes descuentan una vez · el `CHECK` rechaza stock negativo por SQL directo · idempotencia por `providerMessageId` · un borrador sin ninguna línea con producto no se confirma |
 | `twilio-webhook.test.ts` (9) | Firma inválida, ausente o con un parámetro alterado → `403` sin escrituras · **firma hecha para otra URL con `X-Forwarded-*` imitando la configurada → `403`** · sin credenciales → `403` · reintento sin duplicados · adjunto |
 | `outbound-transport.test.ts` (3) | Envío con el SDK sustituido · fallo de Twilio → `FAILED` · **una conversación del simulador nunca sale a la red** |
 | `authorization.test.ts` (3) | `401` en la confirmación **sin consultar la base** · simulador sin sesión · simulador apagado → `404` |
@@ -869,7 +883,7 @@ Ejercitan los endpoints de §4 de extremo a extremo del proceso —autorización
 |---|---|
 | `POST /api/webhooks/twilio` *(diseñado como `/whatsapp` para Meta)* | **200** con firma válida y `Message` persistido · **403** con firma inválida y **cero escrituras** · **200** en entrega repetida sin duplicar · **200** en evento de estado sin crear `Message` · **400** con cuerpo no conforme · **413** por encima de 1 MiB |
 | `POST /api/simulator/messages` | **200** con rol válido, devolviendo el borrador generado · **401** sin sesión · **404** con `SIMULATOR_ENABLED=false`, aun autenticado · **400** con número o texto no conformes |
-| `POST /api/orders/{orderId}/confirm` | **200** con descuento de `stockQuantity` · **200** idempotente en la segunda llamada, sin segundo descuento ni segundo resumen · **409 `INSUFFICIENT_STOCK`** con la línea y la cantidad disponible · **409 `ORDER_NOT_DRAFT`** · **401** sin sesión, **sin consultar la base** · **404** inexistente · **400** con `orderId` fuera del patrón `cuid` |
+| `POST /api/orders/{orderId}/confirm` | **200** con descuento de `stockQuantity` · **200** idempotente en la segunda llamada, sin segundo descuento ni segundo resumen · **409 `INSUFFICIENT_STOCK`** con la línea y la cantidad disponible · **422 `ORDER_HAS_NO_LINES`** sin líneas con producto · **401** sin sesión, **sin consultar la base** · **404** inexistente · **400** con `orderId` fuera del patrón `cuid` |
 | Server actions del backoffice | Rechazo en servidor al invocarlas **sin sesión**, y al editar líneas de un `Order` en `CONFIRMED` |
 
 Cada respuesta se valida contra el `components.schemas` correspondiente de §4, de modo que una divergencia entre el contrato publicado y la implementación pone la suite roja.
@@ -923,7 +937,7 @@ Los once criterios de aceptación de las tres historias documentadas en ficha co
 - **La ruta real del proveedor de AI no se ejercita nunca en CI.** La suite corre con `ORDER_DRAFTER=rules` y el escenario 1 de US-04b usa un doble. Eso es deliberado —CI determinista y sin credenciales—, pero significa que **el E2E valida la tubería, no la calidad de la interpretación**. La única verificación de que el LLM entiende bien es manual, y así queda declarado.
 - **US-07 escenario 3 se prueba a nivel de componente, no de sistema.** Forzar un fallo real de PostgreSQL dentro del E2E costaría más de lo que aporta; se verifica que el componente reacciona bien ante una consulta que rechaza.
 
-Las doce historias restantes de §5 no tienen ficha completa y por tanto no aparecen aquí, pero sus escenarios están en los specs de `openspec/changes/bootstrap-carnik/specs/` y son igualmente la fuente de sus tests.
+Las doce historias restantes de §5 no tienen ficha completa y por tanto no aparecen aquí, pero sus escenarios están en `openspec/specs/` y son igualmente la fuente de sus tests.
 
 ---
 
@@ -1264,37 +1278,57 @@ Seis endpoints: **tres que atraviesan el límite del sistema con efectos** —la
 
 ### Contrato OpenAPI 3.0
 
+El contrato vive en [`docs/api/openapi.yaml`](docs/api/openapi.yaml), que se puede abrir en Swagger UI o Redoc y pasa `redocly lint` sin errores. El test `tests/unit/openapi-contract.test.ts` falla si un route handler queda sin documentar, si se documenta uno que no existe o si un handler emite un código de error que el contrato no recoge. Se reproduce aquí para leerlo sin salir del documento:
+
 ```yaml
 openapi: 3.0.3
 info:
   title: Carnik API
-  version: 1.1.0
+  version: 1.2.0
   description: |
     Fronteras HTTP del sistema: la entrada real de mensajes de WhatsApp vía
     Twilio, la entrada equivalente del simulador interno, la confirmación del
     pedido —única operación con efectos irreversibles— y tres lecturas.
 
+    Las mutaciones del backoffice (editar líneas, escribir al cliente,
+    catálogo y existencias) son server actions de Next.js, sin contrato
+    público: no aparecen aquí.
+
     Ningún esquema de respuesta expone `User.passwordHash` ni
     `Message.providerMessageId`. Sólo el simulador devuelve el borrador
     generado; ninguna respuesta incluye `Customer.phoneE164`.
+
+    Un error no controlado del servidor responde `500` con la página de
+    error de Next.js, no con el esquema `Error`.
 servers:
   - url: https://srs-carnik-production.up.railway.app
     description: Producción
+  - url: http://localhost:3000
+    description: Desarrollo local
 
 security:
   - sessionCookie: []
 
+tags:
+  - name: Mensajería
+    description: Entrada de mensajes de clientes
+  - name: Pedidos
+    description: Confirmación y lecturas del backoffice
+  - name: Operación
+    description: Salud del servicio
+
 paths:
   /api/webhooks/twilio:
     post:
+      tags: [Mensajería]
       operationId: ingestTwilioMessage
       summary: Recibe un mensaje de WhatsApp desde Twilio
       description: |
         Punto de entrada de los mensajes reales de clientes. Se autoriza por
-        la firma `X-Twilio-Signature` (HMAC-SHA1 de la URL más los parámetros
-        ordenados), validada con el SDK oficial en tiempo constante contra
-        la URL fija `TWILIO_WEBHOOK_URL`, nunca reconstruida desde cabeceras
-        del proxy. Sin las cuatro variables `TWILIO_*` rechaza toda petición.
+        la firma `X-Twilio-Signature`, validada con `twilio.validateRequest`
+        contra la URL fija `TWILIO_WEBHOOK_URL`, nunca reconstruida desde
+        cabeceras del proxy. Sin las cuatro variables `TWILIO_*` rechaza toda
+        petición con 403 (fallo cerrado).
 
         La respuesta al cliente no viaja en el TwiML: sale por el transporte
         saliente, para que el simulador y el webhook compartan el mismo
@@ -1313,7 +1347,8 @@ paths:
         '200':
           description: |
             Mensaje aceptado, también cuando es un reintento del mismo
-            `MessageSid` o trae un adjunto: no son errores del emisor y un
+            `MessageSid`, trae un adjunto, se suma a un borrador abierto o
+            supera el límite por remitente: no son errores del emisor y un
             código de error provocaría reintentos.
           content:
             text/xml:
@@ -1321,143 +1356,162 @@ paths:
                 type: string
                 example: '<Response/>'
         '400':
-          description: Firma válida pero remitente, identificador o texto no conformes
+          description: |
+            Firma válida pero formulario ilegible, `MessageSid` o remitente no
+            conformes, o texto vacío sin adjuntos.
+          content:
+            text/xml:
+              schema:
+                type: string
+                example: '<Response/>'
         '403':
           description: |
-            Firma ausente, inválida, calculada para otra URL o con un
-            parámetro alterado, o canal sin credenciales configuradas. No se
+            Firma ausente o inválida (calculada para otra URL o con un
+            parámetro alterado), o canal sin credenciales configuradas. No se
             persiste nada ni se invoca al proveedor de AI.
+          content:
+            text/xml:
+              schema:
+                type: string
+                example: '<Response/>'
 
   /api/simulator/messages:
     post:
+      tags: [Mensajería]
       operationId: simulateInboundMessage
       summary: Inyecta un mensaje entrante sin pasar por el proveedor
       description: |
         Produce exactamente el mismo efecto de dominio que el webhook, pero
         sin red externa ni credenciales. Es el canal que conduce el test E2E
-        y el que permite desarrollar y demostrar el producto con el
-        proveedor caído.
+        y el que permite demostrar el producto con el proveedor caído.
 
-        Devuelve el borrador generado para que el efecto del mensaje sea
-        observable sin abrir el backoffice.
-
-        **Debe poder desaparecer en producción:** exige sesión con rol y
-        además puede apagarse con `SIMULATOR_ENABLED`.
-      security:
-        - sessionCookie: []
+        Exige sesión con rol y además puede apagarse con
+        `SIMULATOR_ENABLED`. Los mensajes salientes de una conversación
+        simulada nunca salen a la red.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/SimulatedMessageRequest'
+            example:
+              phoneE164: '+41791234567'
+              profileName: Anna Muster
+              text: Para el sábado quiero 2 kg de entrecot y 6 salchichas
       responses:
         '200':
           description: |
-            Mensaje ingerido. `order` sólo existe si se abrió un borrador; si
-            no, `reply` trae la respuesta automática enviada (saludo, consulta,
-            límite) o `appendedToOrderId` indica el borrador al que se sumó
+            Mensaje ingerido. La forma depende del resultado:
+
+            - **borrador creado**: `messageId` y `order`;
+            - **respuesta automática** (saludo, consulta, «lo de siempre» sin
+              historial): `messageId`, `intent`, `reply` y `order: null`;
+            - **límite por remitente**: `messageId`, `rateLimited: true`,
+              `reply` (null si ya se avisó en la ventana) y `order: null`;
+            - **sumado a un borrador abierto**: `messageId`,
+              `appendedToOrderId` y `order: null`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SimulatedIngestResult'
         '400':
-          description: Número o texto no conformes
+          description: Cuerpo que no es JSON, o número, nombre o texto no conformes
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidationError'
         '401':
-          description: Sin sesión válida
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/Unauthenticated'
         '404':
           description: |
-            Canal deshabilitado por `SIMULATOR_ENABLED=false`. **Se responde
-            404 y no 403 aun con sesión válida**: la existencia misma del
+            Canal deshabilitado por `SIMULATOR_ENABLED`. **Se responde 404 y
+            no 403, antes incluso de mirar la sesión**: la existencia misma del
             canal es lo que no debe revelarse.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
-        '413':
-          description: Payload superior a 32 KiB
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+              example:
+                code: NOT_FOUND
+                message: No encontrado
 
   /api/orders/{orderId}/confirm:
     post:
+      tags: [Pedidos]
       operationId: confirmOrder
       summary: Confirma un pedido y descuenta las existencias
       description: |
         Cambia el estado a `CONFIRMED` y descuenta la cantidad de cada línea
-        del `stockQuantity` de su producto, en una única transacción. La
-        suficiencia de existencias se comprueba en el momento de confirmar,
-        no cuando se generó el borrador.
+        con producto del `stockQuantity` de su producto, en una única
+        transacción, dejando un `StockMovement` por línea. La suficiencia de
+        existencias se comprueba al confirmar, con la fila del producto
+        bloqueada, no cuando se generó el borrador.
 
         **Es idempotente:** confirmar dos veces devuelve 200 con el mismo
-        pedido, sin descontar de nuevo, sin alterar `confirmedAt` y sin
-        enviar un segundo resumen al cliente.
+        pedido y `alreadyConfirmed: true`, sin descontar de nuevo, sin
+        alterar `confirmedAt` y sin enviar un segundo resumen.
 
-        **Sin cuerpo de petición:** la confirmación no necesita parámetros.
-        El guardia optimista que se llegó a considerar quedó fuera del MVP;
-        su ausencia está registrada como riesgo conocido en §2.5.
-
-        El resumen al cliente se envía después de que la transacción
-        confirme. Un fallo de envío no revierte la venta.
-      security:
-        - sessionCookie: []
+        **Sin cuerpo de petición.** El resumen al cliente se envía después
+        de que la transacción confirme: un fallo de envío no revierte la
+        venta y queda como `summaryMessage.status: FAILED`.
       parameters:
         - $ref: '#/components/parameters/OrderId'
       responses:
         '200':
-          description: Pedido confirmado. Se devuelve lo mismo si ya estaba confirmado
+          description: Pedido confirmado, o ya confirmado antes (reintento sin efectos)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrderConfirmed'
         '400':
-          description: '`orderId` con formato inválido'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ValidationError'
-        '401':
-          description: |
-            Sin sesión válida. Se responde antes de consultar la base, de
-            modo que la respuesta no revela si el pedido existe.
+          description: '`orderId` con formato inválido. No se consulta la base'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Identificador de pedido no válido
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
         '404':
           description: El pedido no existe
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+              example:
+                code: ORDER_NOT_FOUND
+                message: Pedido no encontrado
         '409':
           description: |
-            Caso de negocio. `INSUFFICIENT_STOCK` cuando alguna línea supera
-            las existencias actuales; `ORDER_NOT_DRAFT` cuando el pedido está
-            en un estado que no admite confirmación. La transacción revierte
-            entera: ni el estado ni las existencias cambian.
+            Alguna línea supera las existencias actuales. La transacción
+            revierte entera: ni el estado ni las existencias cambian.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ConfirmConflict'
+                $ref: '#/components/schemas/InsufficientStock'
+        '422':
+          description: |
+            El borrador no tiene ninguna línea con producto (todas sin
+            reconocer o eliminadas). Sigue en `DRAFT` y no se envía nada al
+            cliente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: ORDER_HAS_NO_LINES
+                message: 'El pedido no tiene líneas con producto: no se puede confirmar'
 
   /api/orders/pending-count:
     get:
+      tags: [Pedidos]
       operationId: countPendingOrders
       summary: Número de pedidos en borrador, para el badge de la navegación
       description: |
         Lo consulta el navegador cada 10 s. `requireRole` se ejecuta antes de
-        cualquier consulta. Respuesta sin caché.
+        cualquier consulta. Respuesta con `Cache-Control: no-store`.
       responses:
         '200':
           description: Conteo vigente
@@ -1466,20 +1520,19 @@ paths:
               schema:
                 $ref: '#/components/schemas/PendingCount'
         '401':
-          description: Sin sesión válida. No se consulta la base
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/Unauthenticated'
 
   /api/orders/assembly-queue:
     get:
+      tags: [Pedidos]
       operationId: getAssemblyQueue
       summary: Cola de armado de la pantalla del local
       description: |
         Pedidos confirmados desde la medianoche de hoy en Europe/Zurich, del
-        más antiguo al más reciente. Proyección cerrada en la consulta: sin
-        teléfono, conversación ni texto del cliente. Refrescada cada 20 s.
+        más antiguo al más reciente (máximo 100). Proyección cerrada en la
+        consulta: sin teléfono, conversación ni texto del cliente. El
+        navegador la refresca cada 20 s. Respuesta con
+        `Cache-Control: no-store`.
       responses:
         '200':
           description: Cola vigente
@@ -1488,16 +1541,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/AssemblyQueue'
         '401':
-          description: Sin sesión válida. No se consulta la base
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
+          $ref: '#/components/responses/Unauthenticated'
 
   /api/health:
     get:
+      tags: [Operación]
       operationId: health
       summary: Healthcheck de Railway
+      description: Indica que el proceso responde. No comprueba la base de datos.
       security: []
       responses:
         '200':
@@ -1506,9 +1557,11 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [ok]
                 properties:
                   ok:
                     type: boolean
+                    example: true
 
 components:
   securitySchemes:
@@ -1517,30 +1570,42 @@ components:
       in: cookie
       name: carnik_session
       description: |
-        Cookie de sesión firmada, `httpOnly`, `secure`, `sameSite=lax`, con
-        TTL de 8 h y sin renovación deslizante. Transporta el identificador
-        de `User` y su rol. La comprobación se ejecuta dentro de cada
-        handler; no hay `middleware.ts`. Roles admitidos: `EMPLOYEE` y
-        `ADMIN`.
+        Cookie de sesión cifrada (iron-session), `httpOnly`, `sameSite=lax` y
+        `secure` en producción, con expiración absoluta de 8 h fijada al
+        iniciar sesión. Transporta el identificador de `User` y su rol. Se
+        obtiene en `/login` (server action). La comprobación se ejecuta dentro
+        de cada handler; no hay `middleware.ts`. Roles admitidos: `EMPLOYEE`
+        y `ADMIN`.
     twilioSignature:
       type: apiKey
       in: header
       name: X-Twilio-Signature
       description: |
         HMAC-SHA1, con `TWILIO_AUTH_TOKEN`, de `TWILIO_WEBHOOK_URL` más los
-        parámetros del formulario ordenados. Validada con
-        `twilio.validateRequest`. Es el único mecanismo de autorización del
-        webhook, que no tiene sesión por necesidad.
+        parámetros del formulario ordenados. Es el único mecanismo de
+        autorización del webhook, que no tiene sesión por necesidad.
 
   parameters:
     OrderId:
       name: orderId
       in: path
       required: true
-      description: Identificador del pedido. **Nunca se acepta `Order.reference`**, que es adivinable
+      description: Identificador (`cuid`) del pedido. **Nunca se acepta `Order.reference`**
       schema:
         type: string
-        pattern: '^c[a-z0-9]{24}$'
+        pattern: '^c[a-z0-9]{20,32}$'
+        example: cmg8k2m4p0001qz7h3f9a2b1c
+
+  responses:
+    Unauthenticated:
+      description: Sin sesión válida o con rol no admitido. Se responde antes de consultar la base
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: UNAUTHENTICATED
+            message: Sesión requerida
 
   schemas:
     OrderStatus:
@@ -1549,6 +1614,7 @@ components:
     DraftOrigin:
       type: string
       enum: [AI, FALLBACK]
+      description: '`AI` si interpretó el LLM; `FALLBACK` si lo hizo el intérprete por reglas'
     MessageStatus:
       type: string
       enum: [SENT, FAILED]
@@ -1562,49 +1628,59 @@ components:
       properties:
         code:
           type: string
-          example: UNAUTHENTICATED
+          enum: [UNAUTHENTICATED, VALIDATION_ERROR, NOT_FOUND, ORDER_NOT_FOUND, ORDER_HAS_NO_LINES]
         message:
           type: string
-          description: Texto para registro y depuración, no para mostrar al cliente final
-          example: Sesión ausente o expirada
+          description: Texto legible para registro y depuración
 
     ValidationError:
-      type: object
-      required: [code, message, fields]
-      properties:
-        code:
-          type: string
-          enum: [VALIDATION_ERROR]
-        message:
-          type: string
-        fields:
-          type: array
-          items:
-            type: object
-            required: [path, message]
-            properties:
-              path:
-                type: string
-                example: phoneE164
-              message:
-                type: string
-                example: Debe estar en formato E.164
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            issues:
+              type: array
+              description: Problemas detectados por Zod, uno por campo
+              items:
+                type: object
+                required: [path, message]
+                properties:
+                  code:
+                    type: string
+                    example: invalid_format
+                  path:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: string
+                        - type: integer
+                    example: [phoneE164]
+                  message:
+                    type: string
+                    example: Número en formato E.164, p. ej. +41791234567
+      example:
+        code: VALIDATION_ERROR
+        message: Datos no válidos
+        issues:
+          - code: invalid_format
+            path: [phoneE164]
+            message: Número en formato E.164, p. ej. +41791234567
 
-    ConfirmConflict:
+    InsufficientStock:
       type: object
-      required: [code, message]
+      required: [code, message, lines]
       properties:
         code:
           type: string
-          enum: [INSUFFICIENT_STOCK, ORDER_NOT_DRAFT]
+          enum: [INSUFFICIENT_STOCK]
         message:
           type: string
         lines:
           type: array
-          description: Presente sólo con INSUFFICIENT_STOCK
+          description: Líneas cuya cantidad supera las existencias actuales
           items:
             type: object
-            required: [orderItemId, requested, available]
+            required: [orderItemId, productName, requested, available]
             properties:
               orderItemId:
                 type: string
@@ -1612,68 +1688,71 @@ components:
                 type: string
               requested:
                 type: string
-                description: Decimal como cadena para no perder precisión
+                description: Decimal con tres decimales, como cadena para no perder precisión
                 example: '2.000'
               available:
                 type: string
-                example: '1.500'
+                example: '0.800'
 
     ProductRef:
       type: object
-      description: Proyección mínima de Product. No expone stockQuantity absoluto
+      description: Proyección mínima de Product. No expone stockQuantity
       required: [id, slug, name, unit]
       properties:
         id:
           type: string
         slug:
           type: string
+          example: entrecot
         name:
           type: string
+          example: Entrecot
         unit:
           $ref: '#/components/schemas/ProductUnit'
 
     OrderItemView:
       type: object
-      required: [id, rawText, quantity, unitPriceCents, lineTotalCents, hasStockWarning]
+      required: [id, product, rawText, quantity, unitPriceCents, lineTotalCents, hasStockWarning, availableQuantity]
       properties:
         id:
           type: string
         product:
+          type: object
           allOf:
             - $ref: '#/components/schemas/ProductRef'
           nullable: true
-          description: Vacío si la mención no se resolvió contra el catálogo
+          description: null si la mención no se resolvió contra el catálogo
         rawText:
           type: string
-          description: Texto original del cliente para esta línea
+          description: Fragmento original del mensaje para esta línea
+          example: 2 kg de entrecot
         quantity:
           type: string
           description: Decimal(10,3) serializado como cadena
-          example: '1.500'
+          example: '2.000'
         unitPriceCents:
           type: integer
-          format: int32
+          description: 0 si la línea no tiene producto
         lineTotalCents:
           type: integer
-          format: int32
         hasStockWarning:
           type: boolean
         availableQuantity:
           type: string
           nullable: true
-          description: Existencias del producto. Sólo presente si hasStockWarning es true
+          description: Existencias del producto; sólo si hasStockWarning es true
+          example: '1.500'
 
     OrderDraftView:
       type: object
-      description: |
-        Borrador recién generado. No incluye datos del Customer ni el
-        contenido de la Conversation: es la vista que muestra el simulador
-      required: [id, reference, status, draftedBy, totalCents, items]
+      description: Borrador recién generado. Sin datos del Customer ni de la Conversation
+      required: [id, reference, status, draftedBy, totalCents, currency, items]
       properties:
         id:
           type: string
         reference:
           type: string
+          description: Seis últimos caracteres del id, en mayúsculas
           example: K2M4P0
         status:
           $ref: '#/components/schemas/OrderStatus'
@@ -1681,13 +1760,11 @@ components:
           $ref: '#/components/schemas/DraftOrigin'
         totalCents:
           type: integer
-          format: int32
         currency:
           type: string
           enum: [CHF]
         items:
           type: array
-          minItems: 1
           items:
             $ref: '#/components/schemas/OrderItemView'
 
@@ -1697,14 +1774,19 @@ components:
       properties:
         phoneE164:
           type: string
-          pattern: '^\+[1-9]\d{7,14}$'
-          description: Número del cliente simulado
+          pattern: '^\+[1-9]\d{6,14}$'
+          description: Número del cliente simulado, en formato E.164
           example: '+41791234567'
+        profileName:
+          type: string
+          maxLength: 100
+          description: Nombre de perfil de WhatsApp simulado
+          example: Anna Muster
         text:
           type: string
           minLength: 1
           maxLength: 4096
-          description: Cuerpo del mensaje, tal como lo escribiría el cliente
+          description: Cuerpo del mensaje (se recortan espacios)
 
     SimulatedIngestResult:
       type: object
@@ -1712,8 +1794,9 @@ components:
       properties:
         messageId:
           type: string
-          description: Identificador del Message registrado
+          description: Identificador del Message entrante registrado
         order:
+          type: object
           allOf:
             - $ref: '#/components/schemas/OrderDraftView'
           nullable: true
@@ -1721,11 +1804,11 @@ components:
         intent:
           type: string
           enum: [GREETING, QUESTION, REPEAT_LAST]
-          description: Intención del mensaje cuando no abrió borrador
+          description: Intención del mensaje cuando recibió una respuesta automática
         reply:
           type: string
           nullable: true
-          description: Respuesta automática enviada, construida desde plantillas
+          description: Respuesta automática enviada
         appendedToOrderId:
           type: string
           description: Borrador abierto al que se sumó el mensaje, sin interpretarlo
@@ -1734,6 +1817,7 @@ components:
           description: El remitente superó el límite; el mensaje quedó registrado sin invocar a la AI
         duplicate:
           type: boolean
+          description: Presente sólo en los caminos sin messageId (reintento o adjunto)
 
     OrderConfirmed:
       type: object
@@ -1744,32 +1828,34 @@ components:
         reference:
           type: string
         status:
-          $ref: '#/components/schemas/OrderStatus'
+          type: string
+          enum: [CONFIRMED]
         totalCents:
           type: integer
-          format: int32
         confirmedAt:
           type: string
           format: date-time
         confirmedByUserId:
           type: string
+          description: Quien confirmó primero; en un reintento puede ser otro usuario
         alreadyConfirmed:
           type: boolean
           description: true si la petición fue un reintento y no tuvo efectos
         summaryMessage:
           type: object
-          description: Resultado del envío del resumen al cliente
-          required: [status]
+          nullable: true
+          description: Resultado del envío del resumen al cliente; null si alreadyConfirmed
+          required: [status, messageId]
           properties:
             status:
               $ref: '#/components/schemas/MessageStatus'
             messageId:
               type: string
-              nullable: true
 
     TwilioInboundForm:
       type: object
-      required: [MessageSid, From, NumMedia]
+      required: [MessageSid, From]
+      description: Sólo los campos que se usan; Twilio envía más y se ignoran
       properties:
         MessageSid:
           type: string
@@ -1778,15 +1864,18 @@ components:
         From:
           type: string
           example: 'whatsapp:+41791234567'
-          description: Se le quita el prefijo y se valida como E.164
+          description: Se le quita el prefijo `whatsapp:` y se valida como E.164
         Body:
           type: string
           maxLength: 4096
+          default: ''
         ProfileName:
           type: string
           maxLength: 100
         NumMedia:
           type: integer
+          minimum: 0
+          default: 0
           description: Mayor que cero, el mensaje se registra sin su contenido
 
     PendingCount:
@@ -1806,32 +1895,41 @@ components:
           format: date-time
         orders:
           type: array
+          maxItems: 100
           items:
             type: object
-            required: [id, reference, confirmedAt, customerName, lines]
+            required: [id, reference, customerName, confirmedAt, confirmedTime, lines]
             properties:
               id:
                 type: string
               reference:
                 type: string
-              confirmedAt:
-                type: string
-                description: Hora de confirmación en Europe/Zurich
               customerName:
                 type: string
-                description: Nombre de pila del perfil, o «Cliente»
+                description: Nombre de pila del perfil (máx. 24 caracteres), o «Cliente»
+                example: Anna
+              confirmedAt:
+                type: string
+                format: date-time
+              confirmedTime:
+                type: string
+                description: Hora de confirmación HH:MM en Europe/Zurich
+                example: '09:42'
               lines:
                 type: array
+                description: Sólo las líneas con producto
                 items:
                   type: object
+                  required: [id, productName, quantityLabel]
                   properties:
                     id:
                       type: string
                     productName:
                       type: string
-                    quantity:
+                      example: Entrecot
+                    quantityLabel:
                       type: string
-                      example: '1.5 kg'
+                      example: 1.5 kg
 ```
 
 ### Por qué el mismo código para «no existe» y «no autorizado»
@@ -1976,6 +2074,9 @@ sequenceDiagram
         else Afecta 0 filas y el Order no existe
             D-->>A: ROLLBACK
             A-->>N: 404 ORDER_NOT_FOUND
+        else Afecta 1 fila y ninguna linea tiene producto
+            D-->>A: ROLLBACK
+            A-->>N: 422 ORDER_HAS_NO_LINES
         else Afecta 1 fila
             D->>D: UPDATE Product SET stockQuantity -= q<br/>WHERE id=? AND stockQuantity >= q
 
@@ -2227,7 +2328,7 @@ Ordenada por posición en el flujo E2E, no por identificador.
 | `US-11` | Respuesta al cliente | 8 · Valor entregado al cliente | Must | **Sí** | ✅ |
 | `US-13` | Ver la cola de armado en la pantalla del local | 9 · Armado en el local | Must | No | ✅ |
 | `US-14` | Responder consultas simples de precio y disponibilidad | Fuera del flujo E2E | **Could** | No · reincorporada, ver abajo | ✅ |
-| `US-15` | Gestionar el catálogo, sus precios y sus existencias | Transversal · mantiene vigentes los datos contra los que se valora cada pedido | Must | No · spec en `openspec/changes/add-catalog-management/` | ✅ |
+| `US-15` | Gestionar el catálogo, sus precios y sus existencias | Transversal · mantiene vigentes los datos contra los que se valora cada pedido | Must | No · spec en `openspec/specs/catalog-management/` | ✅ |
 | `US-16` | Sugerir productos alternativos o complementarios (*upsell*) | 5 · Ajuste | **Could** | No | ⏭ |
 
 ### US-14: salió del MVP en la Entrega 1 y volvió como Could
@@ -2532,7 +2633,7 @@ Sólo comodidad: se comprueba que hay al menos una línea y que ninguna está si
 | [#11](https://github.com/fedewagner/SRS-Carnik/pull/11) | `feature-us12-manual-message-FJW` | **Mensaje manual al cliente** desde el detalle (`US-12`) | Mergeado |
 | [#12](https://github.com/fedewagner/SRS-Carnik/pull/12) | `feature-us13-dashboard-FJW` | **Pantalla del local** de sólo lectura (`US-13`) | Mergeado |
 | [#13](https://github.com/fedewagner/SRS-Carnik/pull/13) | `feature-us14-catalog-answers-FJW` | **Respuestas a consultas de precio y disponibilidad** (`US-14`) | Mergeado |
-| [#14](https://github.com/fedewagner/SRS-Carnik/pull/14) | `docs-final-FJW` | **Documentación final.** README y `prompts.md` alineados con el sistema desplegado: contrato OpenAPI real, arquitectura con Twilio, capturas nuevas y suite de 204 tests | Este PR |
+| [#14](https://github.com/fedewagner/SRS-Carnik/pull/14) | `docs-final-FJW` | **Cierre de la entrega.** Rediseño del backoffice, límite de intentos en `/login`, test del contrato OpenAPI, specs vivas de OpenSpec, configuración del agente (`CLAUDE.md`, subagente revisor, revisión con IA en CI), cinco ADR, capturas regeneradas y suite de 214 tests | Mergeado |
 
 Los PRs #9 a #13 los implementaron cinco agentes en paralelo durante una noche, cada uno en su propio worktree y con su propia base de test, y con prohibición explícita de mergear o desplegar. Se revisaron y mergearon al día siguiente; los conflictos entre ellos —la navegación, las consultas y el E2E, que tocaban varios— se resolvieron conservando ambos lados (ver `prompts.md`).
 
