@@ -2634,7 +2634,8 @@ Sólo comodidad: se comprueba que hay al menos una línea y que ninguna está si
 | [#11](https://github.com/fedewagner/SRS-Carnik/pull/11) | `feature-us12-manual-message-FJW` | **Mensaje manual al cliente** desde el detalle (`US-12`) | Mergeado |
 | [#12](https://github.com/fedewagner/SRS-Carnik/pull/12) | `feature-us13-dashboard-FJW` | **Pantalla del local** de sólo lectura (`US-13`) | Mergeado |
 | [#13](https://github.com/fedewagner/SRS-Carnik/pull/13) | `feature-us14-catalog-answers-FJW` | **Respuestas a consultas de precio y disponibilidad** (`US-14`) | Mergeado |
-| [#14](https://github.com/fedewagner/SRS-Carnik/pull/14) | `docs-final-FJW` | **Cierre de la entrega.** Rediseño del backoffice, límite de intentos en `/login`, test del contrato OpenAPI, specs vivas de OpenSpec, configuración del agente (`CLAUDE.md`, subagente revisor, revisión con IA en CI), cinco ADR, capturas regeneradas y suite de 214 tests | Mergeado |
+| [#14](https://github.com/fedewagner/SRS-Carnik/pull/14) | `docs-final-FJW` | Rama de trabajo del cierre; su contenido se entrega íntegro en #15 | Sustituido por #15 |
+| [#15](https://github.com/fedewagner/SRS-Carnik/pull/15) | `finalproject-FJW` | **Entrega final.** Rediseño del backoffice, límite de intentos en `/login`, CSP, test del contrato OpenAPI, specs vivas de OpenSpec, configuración del agente (`CLAUDE.md`, subagente revisor, hook, revisión con IA en CI), cinco ADR, capturas regeneradas y suite de 214 tests. Release `v1.0-final-FJW` | Mergeado |
 
 Los PRs #9 a #13 los implementaron cinco agentes en paralelo durante una noche, cada uno en su propio worktree y con su propia base de test, y con prohibición explícita de mergear o desplegar. Se revisaron y mergearon al día siguiente; los conflictos entre ellos —la navegación, las consultas y el E2E, que tocaban varios— se resolvieron conservando ambos lados (ver `prompts.md`).
 

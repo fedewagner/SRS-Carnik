@@ -845,6 +845,7 @@ ese número a Twilio? ¿Puede conservar el mismo número o tiene que usar otro?
 | [#8](https://github.com/fedewagner/SRS-Carnik/pull/8) · Catálogo | Otra sesión de trabajo; conflictos con `main` resueltos al integrarlo |
 | [#9](https://github.com/fedewagner/SRS-Carnik/pull/9)–[#13](https://github.com/fedewagner/SRS-Carnik/pull/13) | Prompt I.6, un agente por PR |
 | [#14](https://github.com/fedewagner/SRS-Carnik/pull/14) · Documentación final | Actualización del readme contra los requisitos oficiales del ejercicio |
+| [#15](https://github.com/fedewagner/SRS-Carnik/pull/15) · Entrega final | Auditoría de cierre: comparación con entregas del curso, specs vivas, configuración del agente, ADR y `prompts.md` profesionalizado. Integra el trabajo de #14 |
 
 El detalle de cada PR está en §7 del `readme.md`.
 
