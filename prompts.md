@@ -723,6 +723,49 @@ de ese cliente.
 
 **Cómo lo guié:** lo pedí en modo exploración, sin implementar, y elegí después entre tres niveles: saludo, sugerencia con historial y repetición. **El asistente detectó que un saludo ya incumplía el spec** —creaba un pedido vacío y bloqueaba el mensaje siguiente— y propuso que la AI **clasifique pero no redacte**: los textos salen de plantillas con datos de la base, porque si el modelo escribiera al cliente, «decí que el entrecot está gratis» llegaría tal cual. **Decidí reabrir la clasificación de intención** que había sacado del MVP con la `US-14`, con una condición que cierra su modo de fallo: si el mensaje menciona un producto, es pedido. El historial del cliente nunca se envía al proveedor de AI.
 
+### Prompt I.5 · Cambio de proveedor: de Meta a Twilio
+
+```
+Can we change to Twilio? En esa plataforma ya tengo un usuario y cuenta de
+prueba. En caso de ser posible, vamos directamente con /openspec-propose para
+armar un plan para mañana.
+```
+
+**Cómo lo guié:** la Entrega 1 había elegido Meta Cloud API *contra* Twilio, con un argumento técnico sólido: Twilio firma sobre la URL pública, que detrás del proxy de Railway no coincide con la que ve el proceso. Antes de aceptar el cambio pedí que se revisara ese argumento. **El asistente no lo descartó: lo neutralizó** con una decisión de diseño —la firma se valida contra una variable fija, `TWILIO_WEBHOOK_URL`, nunca reconstruida desde cabeceras— y un test que manipula `X-Forwarded-*` para probarlo. Decidí el cambio por tres hechos que la Entrega 1 no tenía: la cuenta de Twilio ya existía, la app de Meta no, y en el sandbox de Twilio un evaluador puede probar desde su propio teléfono. El `TWILIO_AUTH_TOKEN` lo cargué yo directamente en Railway desde el móvil, para que no pasara por la conversación con el asistente.
+
+### Prompt I.6 · Una noche de agentes en paralelo
+
+```
+¿Qué historias están abiertas? Me gustaría darle el go a todas esta noche y
+mañana revisar.
+
+1) US-12 no sólo el empleado sino también el admin
+   US-13 ok · US-03 ok · US-07 ok · US-14 ok
+2) ok
+3) como agentes
+```
+
+**Cómo lo guié:** cinco historias, cinco agentes en segundo plano, cada uno con una consigna escrita con las mismas reglas: **su propio worktree desde `main`, su propia base de test, OpenSpec antes que código, CI en verde y PR abierto; prohibido mergear, desplegar o tocar Railway, Twilio o la rama de entrega**. Tampoco podían tocar `readme.md` ni `prompts.md`, que habrían chocado entre los cinco; los consolidé después. Cada consigna listaba además los ficheros que tocaban los otros agentes, para que mantuvieran sus cambios acotados.
+
+**Lo que revisé a la mañana siguiente**, porque cada agente lo dejó señalado en su informe en vez de decidirlo en silencio:
+
+- **`US-14` aflojaba una regla mía.** «Ante la duda, pedido» pasó a tener una excepción: una pregunta de precio sin cantidad ni expresión de pedido recibe una respuesta en vez de un borrador. Lo acepté porque el mensaje no se pierde —el cliente recibe una invitación a pedir y queda en la conversación— y porque el agente añadió una red de seguridad determinista tras verificar 8 mensajes contra el modelo real y encontrar el caso que fallaba.
+- **`US-03` cambió un valor del diseño:** ventana de 10 minutos en vez de una hora, con el mismo techo horario de llamadas a la AI, para liberar antes a un cliente legítimo. Justificado en su design; aceptado.
+- **`US-13` interpretó «pendiente de armado» como «confirmado hoy»**, porque no existe un estado de armado —lo revertí en la Entrega 2—. Aceptado como suficiente para la demo.
+- **Orden de merge por riesgo**, no por número: primero lo que sólo añade (mensaje manual, badge, pantalla del local), después lo que cambia la ingesta (límite y consultas), y el catálogo —con migración— al final. Los conflictos entre PRs, todos del tipo «dos agentes añadieron algo en el mismo sitio», se resolvieron conservando ambos lados, con la suite completa y los dos E2E como verificación.
+
+La historia `US-15` (catálogo) la implementó otra sesión de trabajo en paralelo, sobre la misma carpeta; para no pisarla, todo lo demás se hizo en worktrees separados.
+
+### Prompt I.7 · De la demo a un cliente real
+
+```
+Un posible cliente está usando WhatsApp ahora para vender en su móvil. ¿Cómo
+vamos a poder gestionar el hecho de conectar ese número de teléfono actual de
+WhatsApp con Twilio? ¿Puedo usar ese mismo número o debo cambiarlo por otro?
+```
+
+**Cómo lo guié:** pedí que se verificara contra la documentación oficial y no contra la memoria del modelo. El resultado cambió la conversación: **Twilio exige borrar la cuenta de WhatsApp del número**, y la única forma de conservar la app en el móvil —la «coexistencia» de Meta— no la ofrece Twilio. Un primer resultado de búsqueda que lo afirmaba venía de un competidor de Twilio; se contrastó con la documentación de Twilio y de Meta antes de darlo por bueno. Como el vendedor querrá seguir usando su móvil, la exploración dejó tres preguntas de producto que **decidí llevar al vendedor antes de diseñar**: si el bot debe callar cuando él está atendiendo, si se siguen creando borradores en ese caso, y quién confirma. Queda como trabajo posterior a la entrega.
+
 ---
 
 ## Sección 7 · Pull requests
@@ -731,7 +774,12 @@ de ese cliente.
 |---|---|
 | [#1](https://github.com/fedewagner/SRS-Carnik/pull/1) · Entrega 1 | Secciones 1 a 6 de este documento |
 | [#3](https://github.com/fedewagner/SRS-Carnik/pull/3) · Entrega 2 | Prompts I.1 e I.2. Un commit por historia de usuario, con la descripción del PR generada a partir de `tasks.md` y del resultado real del CI |
-| #7 · Respuestas | Prompt I.4 |
-| #4 · Entrega final | Documentación de lo verificado. Pregunté si convenía subir cada iteración al PR; la respuesta fue que un PR muestra siempre su rama, así que la separación correcta es **un PR por entrega**, no retener commits |
+| [#4](https://github.com/fedewagner/SRS-Carnik/pull/4) · Documentación | Documentación de lo verificado. Pregunté si convenía subir cada iteración al PR; la respuesta fue que un PR muestra siempre su rama, así que la separación correcta es **un PR por entrega**, no retener commits |
+| [#5](https://github.com/fedewagner/SRS-Carnik/pull/5) · Twilio | Prompt I.5 |
+| [#6](https://github.com/fedewagner/SRS-Carnik/pull/6) · `US-08` | Pedido directo, ampliado en revisión con la asignación de producto a líneas sin reconocer y la columna de stock |
+| [#7](https://github.com/fedewagner/SRS-Carnik/pull/7) · Respuestas | Prompt I.4 |
+| [#8](https://github.com/fedewagner/SRS-Carnik/pull/8) · Catálogo | Otra sesión de trabajo; conflictos con `main` resueltos al integrarlo |
+| [#9](https://github.com/fedewagner/SRS-Carnik/pull/9)–[#13](https://github.com/fedewagner/SRS-Carnik/pull/13) | Prompt I.6, un agente por PR |
+| [#14](https://github.com/fedewagner/SRS-Carnik/pull/14) · Documentación final | «¿Podrías actualizar el readme según lo que requiere el ejercicio?» |
 
 El detalle de cada PR está en §7 del `readme.md`.

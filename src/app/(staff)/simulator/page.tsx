@@ -10,7 +10,7 @@ export default async function SimulatorPage() {
       <div>
         <h1 className="text-xl font-bold">Simulador de WhatsApp</h1>
         <p className="text-sm text-stone-500">
-          Escribí como lo haría un cliente. El mensaje entra por la misma función que usará el webhook de Meta.
+          Escribí como lo haría un cliente. El mensaje entra por la misma función que el webhook de WhatsApp (Twilio).
         </p>
       </div>
       <SimulatorForm />
