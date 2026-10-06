@@ -23,6 +23,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ orderI
   switch (result.kind) {
     case "not_found":
       return jsonError(404, "ORDER_NOT_FOUND", "Pedido no encontrado");
+    case "no_lines":
+      return jsonError(422, "ORDER_HAS_NO_LINES", "El pedido no tiene líneas con producto: no se puede confirmar");
     case "insufficient_stock":
       return jsonError(409, "INSUFFICIENT_STOCK", "Una o más líneas superan las existencias disponibles", {
         lines: result.lines,

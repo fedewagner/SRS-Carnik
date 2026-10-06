@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import type { DraftResult } from "@/core/drafting/types";
-import { lineTotalCents, normalizeQuantity } from "./pricing";
+import { boundedQuantity, isValidLineQuantity, lineTotalCents, normalizeQuantity } from "./pricing";
 
 type DraftSource = { customerId: string; conversationId: string; sourceMessageId: string };
 
@@ -13,7 +12,8 @@ export function referenceFromId(id: string): string {
 
 /**
  * Crea el Order en DRAFT. Precios y disponibilidad salen de la base, nunca del intérprete (D9).
- * Las menciones sin resolver se conservan con importe cero para que el empleado las vea.
+ * Las menciones sin resolver se conservan con importe cero para que el empleado las vea; también
+ * las de cantidad fuera de rango (cero tras redondear o por encima del tope), que no se valoran.
  */
 export async function createDraftOrder(source: DraftSource, draft: DraftResult) {
   const slugs = draft.lines.flatMap((l) => (l.productSlug ? [l.productSlug] : []));
@@ -22,15 +22,15 @@ export async function createDraftOrder(source: DraftSource, draft: DraftResult) 
 
   const items = draft.lines.map((line) => {
     const product = line.productSlug ? bySlug.get(line.productSlug) : undefined;
-    if (!product) {
+    const quantity = product && normalizeQuantity(product.unit, line.quantity);
+    if (!product || !quantity || !isValidLineQuantity(product.unit, quantity)) {
       return {
         rawText: line.rawText,
-        quantity: new Prisma.Decimal(line.quantity),
+        quantity: boundedQuantity(line.quantity),
         unitPriceCents: 0,
         lineTotalCents: 0,
       };
     }
-    const quantity = normalizeQuantity(product.unit, line.quantity);
     return {
       productId: product.id,
       rawText: line.rawText,
