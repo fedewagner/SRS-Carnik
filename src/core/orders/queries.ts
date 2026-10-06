@@ -18,7 +18,9 @@ export function getOrderDetail(id: string) {
       customer: true,
       confirmedBy: { select: { email: true } },
       items: { include: { product: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
-      conversation: { include: { messages: { orderBy: { createdAt: "asc" } } } },
+      conversation: {
+        include: { messages: { orderBy: { createdAt: "asc" }, include: { sentBy: { select: { email: true } } } } },
+      },
     },
   });
 }

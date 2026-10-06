@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OrderIdSchema } from "./orders";
 
 export const PhoneE164Schema = z
   .string()
@@ -17,4 +18,19 @@ export const TwilioInboundSchema = z.object({
   Body: z.string().max(4096).default(""),
   ProfileName: z.string().max(100).optional(),
   NumMedia: z.coerce.number().int().min(0).default(0),
+});
+
+/**
+ * Límite de un mensaje de WhatsApp vía Twilio; es el mismo con el que outbound.ts trunca
+ * los textos automáticos. Un texto humano no se trunca: se rechaza (US-12).
+ */
+export const MANUAL_MESSAGE_MAX = 1600;
+
+export const ManualMessageSchema = z.object({
+  orderId: OrderIdSchema,
+  body: z
+    .string()
+    .trim()
+    .min(1, "Escribí un mensaje antes de enviarlo.")
+    .max(MANUAL_MESSAGE_MAX, `El mensaje supera los ${MANUAL_MESSAGE_MAX} caracteres que admite WhatsApp.`),
 });
