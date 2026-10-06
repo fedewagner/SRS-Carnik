@@ -14,6 +14,7 @@ type DraftItem = {
 type Response = {
   order: { id: string; reference: string; draftedBy: string; totalCents: number; items: DraftItem[] } | null;
   appendedToOrderId?: string;
+  reply?: string;
   message?: string;
 };
 
@@ -74,6 +75,13 @@ export function SimulatorForm() {
       </form>
 
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+
+      {result?.reply && (
+        <div data-testid="auto-reply" className="rounded-lg bg-green-50 p-4 text-sm">
+          <p className="mb-1 font-semibold">Sin pedido. Respuesta automática enviada:</p>
+          <p className="whitespace-pre-line">{result.reply}</p>
+        </div>
+      )}
 
       {result?.appendedToOrderId && (
         <p className="rounded-lg bg-amber-50 p-4 text-sm">

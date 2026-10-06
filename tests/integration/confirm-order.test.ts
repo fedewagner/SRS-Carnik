@@ -105,7 +105,10 @@ describe("ingestInboundMessage (US-02, US-05)", () => {
     // Acuse registrado sin enviarse a la red: es una conversación del simulador.
     const [ack] = await db.message.findMany({ where: { direction: "OUTBOUND" } });
     expect(ack).toMatchObject({ channel: "SIMULATOR", status: "SENT", providerMessageId: null });
-    expect(ack.body).not.toMatch(/CHF|\d/);
+    // Enumera lo interpretado y lo pendiente, sin precios ni total.
+    expect(ack.body).toContain("Anotamos: 6 kg Entrecot.");
+    expect(ack.body).toContain("Revisamos a mano: «2 kg de cordero»");
+    expect(ack.body).not.toMatch(/CHF/);
   });
 
   it("un segundo mensaje con borrador abierto se suma a la conversación", async () => {

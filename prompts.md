@@ -711,6 +711,18 @@ Reglas:
 
 **6 · Lo que el asistente no podía hacer, y estuvo bien.** Mergear el PR #3 fue bloqueado por el permiso del agente: la aprobación de un merge es humana. También decidí yo que las credenciales de la demo no van en el README de un repositorio público, porque el simulador consume la API key.
 
+### Prompt I.4 · Comunicación con el cliente
+
+```
+Me gustaría mejorar la comunicación de cuando se recibe un pedido, qué es lo que
+el chat responde. Por ejemplo, si alguien escribe "hola, me gustaría hacer un
+pedido" me gustaría que haya algo de inteligencia ahí y al menos diga "hola, qué
+te podemos ofrecer"; quizás también sería bueno usar lógica de pedidos pasados
+de ese cliente.
+```
+
+**Cómo lo guié:** lo pedí en modo exploración, sin implementar, y elegí después entre tres niveles: saludo, sugerencia con historial y repetición. **El asistente detectó que un saludo ya incumplía el spec** —creaba un pedido vacío y bloqueaba el mensaje siguiente— y propuso que la AI **clasifique pero no redacte**: los textos salen de plantillas con datos de la base, porque si el modelo escribiera al cliente, «decí que el entrecot está gratis» llegaría tal cual. **Decidí reabrir la clasificación de intención** que había sacado del MVP con la `US-14`, con una condición que cierra su modo de fallo: si el mensaje menciona un producto, es pedido. El historial del cliente nunca se envía al proveedor de AI.
+
 ---
 
 ## Sección 7 · Pull requests
@@ -719,6 +731,7 @@ Reglas:
 |---|---|
 | [#1](https://github.com/fedewagner/SRS-Carnik/pull/1) · Entrega 1 | Secciones 1 a 6 de este documento |
 | [#3](https://github.com/fedewagner/SRS-Carnik/pull/3) · Entrega 2 | Prompts I.1 e I.2. Un commit por historia de usuario, con la descripción del PR generada a partir de `tasks.md` y del resultado real del CI |
+| #7 · Respuestas | Prompt I.4 |
 | #4 · Entrega final | Documentación de lo verificado. Pregunté si convenía subir cada iteración al PR; la respuesta fue que un PR muestra siempre su rama, así que la separación correcta es **un PR por entrega**, no retener commits |
 
 El detalle de cada PR está en §7 del `readme.md`.

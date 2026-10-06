@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RuleBasedOrderDrafter } from "@/core/drafting/rules";
+import { RuleBasedOrderDrafter, promoteOrderSignal } from "@/core/drafting/rules";
 import type { CatalogEntry } from "@/core/drafting/types";
 
 const catalog: CatalogEntry[] = [
@@ -56,5 +56,76 @@ describe("RuleBasedOrderDrafter", () => {
 
   it("marca su origen como FALLBACK", async () => {
     expect((await drafter.draft("1 kg de entrecot", catalog)).origin).toBe("FALLBACK");
+  });
+
+  describe("consultas de precio y disponibilidad (A2)", () => {
+    const run = (text: string) => drafter.draft(text, catalog);
+
+    it.each([
+      ["¿a cuánto está el entrecot?", ["entrecot"]],
+      ["precio del entrecot", ["entrecot"]],
+      ["hola, ¿tenés salchichas?", ["salchicha-lyoner"]],
+      ["¿hay cervelat hoy?", ["cervelat"]],
+      ["¿a cuánto están el entrecot y las salchichas?", ["entrecot", "salchicha-lyoner"]],
+      ["¿cuánto sale medio kilo de picada?", ["carne-picada"]],
+    ] as const)("«%s» es consulta sin líneas", async (text, slugs) => {
+      const result = await run(text);
+      expect(result.lines).toEqual([]);
+      expect(result.askedProducts).toEqual(slugs);
+      expect(result.intent).toBe("QUESTION");
+    });
+
+    it.each([
+      "¿a cuánto está el entrecot? mandame 2 kg",
+      "¿tienen 2 kg de entrecot?",
+      "¿tenés entrecot para mañana?",
+      "¿hay entrecot? reservame uno",
+      "quiero entrecot, ¿cuánto sale?",
+    ])("«%s» sigue siendo pedido (C2)", async (text) => {
+      const result = await run(text);
+      expect(result.intent).toBe("ORDER");
+      expect(result.lines.map((l) => l.productSlug)).toContain("entrecot");
+    });
+
+    it("un producto fuera del catálogo no se consulta", async () => {
+      const result = await run("¿a cuánto está el cordero?");
+      expect(result).toMatchObject({ intent: "QUESTION", lines: [], askedProducts: [] });
+    });
+
+    it("una pregunta que no es de catálogo no consulta productos", async () => {
+      expect((await run("¿abren el sábado?")).askedProducts).toEqual([]);
+    });
+
+    it("un pedido sin pregunta no consulta productos", async () => {
+      expect((await run("2 kg de entrecot y 6 salchichas")).askedProducts).toEqual([]);
+    });
+  });
+});
+
+describe("promoteOrderSignal (salida del LLM)", () => {
+  const question = (text: string) =>
+    promoteOrderSignal({ intent: "QUESTION", lines: [], askedProducts: ["entrecot"], origin: "AI" }, text);
+
+  it("una consulta con expresión de pedido pasa a pedido con cantidad 1", () => {
+    expect(question("¿tenés entrecot para mañana?")).toEqual({
+      intent: "ORDER",
+      lines: [{ productSlug: "entrecot", rawText: "¿tenés entrecot para mañana?", quantity: 1 }],
+      askedProducts: [],
+      origin: "AI",
+    });
+  });
+
+  it("una consulta sin expresión de pedido no cambia", () => {
+    expect(question("¿a cuánto está el entrecot?")).toMatchObject({ intent: "QUESTION", lines: [] });
+  });
+
+  it("si ya hay líneas no toca nada", () => {
+    const withLines = {
+      intent: "ORDER" as const,
+      lines: [{ productSlug: "entrecot", rawText: "2 kg", quantity: 2 }],
+      askedProducts: ["entrecot"],
+      origin: "AI" as const,
+    };
+    expect(promoteOrderSignal(withLines, "¿a cuánto está? mandame 2 kg")).toBe(withLines);
   });
 });

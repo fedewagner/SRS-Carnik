@@ -1,4 +1,5 @@
 import { PRODUCT_ALIASES } from "./aliases";
+import { intentByRules } from "./intent";
 import type { DraftLine } from "./schema";
 import type { CatalogEntry, DraftResult, OrderDrafter } from "./types";
 
@@ -7,6 +8,12 @@ const SEGMENT_SEPARATOR = /,(?!\d)|(?<!\d),|;|\n|\+|\s+y\s+|\s+e\s+/i;
 // Un fragmento sin producto que habla de dinero no es una línea de pedido.
 const PRICE_TALK = /\b(chf|fr|francos?|precio|cuesta|vale)\b/;
 const QUANTITY = /(\d+(?:[.,]\d+)?)\s*(kg|kilos?|g|gr|gramos)?\b/;
+// Pregunta por precio o disponibilidad (A2).
+const CATALOG_QUESTION =
+  /\b(cuanto|cuantos|cuanta|precios?|cuesta|cuestan|sale|salen|vale|valen|tienen|tenes|tiene|hay|queda|quedan|disponibles?)\b/;
+// Expresión de pedido: con ella, toda mención de producto sigue siendo línea (C2).
+const ORDER_SIGNAL =
+  /\b(mand\w*|envi\w*|prepar\w*|reserv\w*|separ\w*|guard\w*|anot\w*|pone\w*|dame|deme|necesit\w*|quiero(?! saber)|queria(?! saber)|querria(?! saber)|pedido|para (hoy|manana|pasado|el|la|esta))\b/;
 
 export function normalize(text: string): string {
   return text
@@ -49,13 +56,38 @@ function rawTextOf(original: string): string {
   return firstDigit > 0 ? trimmed.slice(firstDigit) : trimmed;
 }
 
+/**
+ * Red de seguridad para la salida del LLM: si declara productos consultados sin líneas pero el
+ * mensaje trae una expresión de pedido («¿tenés entrecot para mañana?»), es pedido (C2, A7).
+ * Se anotan con cantidad 1, como haría el intérprete por reglas, y el empleado la ajusta.
+ */
+export function promoteOrderSignal(result: DraftResult, text: string): DraftResult {
+  if (result.lines.length > 0 || result.askedProducts.length === 0) return result;
+  if (!ORDER_SIGNAL.test(normalize(text))) return result;
+  const rawText = text.trim();
+  return {
+    ...result,
+    intent: "ORDER",
+    lines: result.askedProducts.map((productSlug) => ({ productSlug, rawText, quantity: 1 })),
+    askedProducts: [],
+  };
+}
+
 /** Intérprete determinista: cantidad + unidad + alias de producto. Sin red (D8). */
 export class RuleBasedOrderDrafter implements OrderDrafter {
   async draft(text: string, catalog: CatalogEntry[]): Promise<DraftResult> {
     const lines: DraftLine[] = [];
+    const asked = new Set<string>();
+    const whole = normalize(text);
+    // Una pregunta de precio o disponibilidad sin expresión de pedido no abre líneas sin cifra (A2).
+    const isCatalogQuestion = CATALOG_QUESTION.test(whole) && !ORDER_SIGNAL.test(whole);
     for (const original of text.split(SEGMENT_SEPARATOR)) {
       const segment = normalize(original);
       const entry = findProduct(segment, catalog);
+      if (entry && isCatalogQuestion && !QUANTITY.test(segment)) {
+        asked.add(entry.slug);
+        continue;
+      }
       const quantity = parseQuantity(segment, entry);
       if (quantity === null || quantity <= 0) continue;
       if (!entry && !QUANTITY.test(segment)) continue;
@@ -63,6 +95,12 @@ export class RuleBasedOrderDrafter implements OrderDrafter {
       if (PRICE_TALK.test(segment) && !segment.match(QUANTITY)?.[2]) continue;
       lines.push({ productSlug: entry?.slug ?? null, rawText: rawTextOf(original), quantity });
     }
-    return { lines, origin: "FALLBACK" };
+    const askedProducts = [...asked];
+    return {
+      intent: intentByRules(text, lines.length, askedProducts.length),
+      lines,
+      askedProducts,
+      origin: "FALLBACK",
+    };
   }
 }
