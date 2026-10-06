@@ -52,6 +52,11 @@ export function noHistoryReply(): string {
   return `No encontramos un pedido anterior tuyo. ¿Nos escribís qué querés? ${EXAMPLE}`;
 }
 
+/** Aviso fijo al superar el límite de mensajes; se envía una vez por ventana (US-03). */
+export function rateLimitReply(): string {
+  return "Recibimos muchos mensajes tuyos seguidos. Quedan anotados y una persona del equipo los revisa en breve.";
+}
+
 export function skippedProductsNote(names: string[]): string {
   return names.length ? ` Hoy no tenemos ${enumerate(names)}.` : "";
 }

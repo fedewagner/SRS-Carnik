@@ -27,6 +27,9 @@ export async function POST(req: Request) {
   if (result.status === "replied") {
     return NextResponse.json({ messageId: result.messageId, intent: result.intent, reply: result.reply, order: null });
   }
+  if (result.status === "rate_limited") {
+    return NextResponse.json({ messageId: result.messageId, rateLimited: true, reply: result.reply, order: null });
+  }
   if (result.status === "appended") {
     return NextResponse.json({ messageId: result.messageId, appendedToOrderId: result.openOrderId, order: null });
   }
