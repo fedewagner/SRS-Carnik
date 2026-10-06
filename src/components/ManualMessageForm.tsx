@@ -24,10 +24,10 @@ export function ManualMessageForm({ orderId }: { orderId: string }) {
         const formData = new FormData(e.currentTarget);
         startTransition(() => action(formData));
       }}
-      className="mt-4 space-y-2 border-t border-stone-200 pt-3 text-sm"
+      className="space-y-2 pt-3 text-sm"
     >
       <input type="hidden" name="orderId" value={orderId} />
-      <label htmlFor="manual-message" className="font-medium">Escribir al cliente</label>
+      <label htmlFor="manual-message" className="card-title block">Escribir al cliente</label>
       <textarea
         id="manual-message"
         name="body"
@@ -36,14 +36,14 @@ export function ManualMessageForm({ orderId }: { orderId: string }) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Por ejemplo: del entrecot me quedan 1,5 kg, ¿te sirve?"
-        className="w-full rounded border border-stone-300 px-2 py-1"
+        className="input w-full resize-y"
       />
       <div className="flex flex-wrap items-center gap-2">
-        <button disabled={pending} className="rounded bg-red-800 px-3 py-1 text-white disabled:opacity-50">
+        <button disabled={pending} className="btn-primary">
           {pending ? "Enviando…" : "Enviar al cliente"}
         </button>
-        <span className="text-xs text-stone-500">{text.length}/{MANUAL_MESSAGE_MAX}</span>
-        {state.error && <span role="status" className="text-red-700">{state.error}</span>}
+        <span className="ml-auto text-xs text-stone-400 tabular-nums">{text.length}/{MANUAL_MESSAGE_MAX}</span>
+        {state.error && <span role="status" className="text-error w-full">{state.error}</span>}
       </div>
     </form>
   );

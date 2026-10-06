@@ -22,38 +22,38 @@ export function StockAdjustForm({ productId, unitLabel, stock, committed }: Prop
   const delta = resulting - Number(stock);
 
   return (
-    <form action={action} className="space-y-2 rounded-lg bg-white p-3 text-sm shadow-sm">
+    <form action={action} className="card space-y-3 p-4 text-sm">
       <input type="hidden" name="productId" value={productId} />
       <input type="hidden" name="expected" value={stock} />
-      <span className="font-medium">Reajuste por conteo</span>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+      <span className="card-title block">Reajuste por conteo</span>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-lg bg-stone-50 px-3 py-2 tabular-nums sm:grid-cols-4">
         <dt className="text-stone-500">Disponible ahora</dt>
-        <dd data-testid="adjust-stock">{show(Number(stock), unitLabel)}</dd>
+        <dd data-testid="adjust-stock" className="font-medium">{show(Number(stock), unitLabel)}</dd>
         <dt className="text-stone-500">Comprometido hoy</dt>
-        <dd data-testid="adjust-committed">{show(Number(committed), unitLabel)}</dd>
+        <dd data-testid="adjust-committed" className="font-medium">{show(Number(committed), unitLabel)}</dd>
       </dl>
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2">
           <span>Contado en el depósito</span>
           <input name="counted" aria-label="Cantidad contada" required inputMode="decimal" value={counted}
-            onChange={(e) => setCounted(e.target.value)} className="w-20 rounded border border-stone-300 px-2 py-1" />
+            onChange={(e) => setCounted(e.target.value)} className="input w-24 tabular-nums" />
           <span className="text-stone-500">{unitLabel}</span>
         </label>
         <input name="reason" aria-label="Motivo" required maxLength={200} placeholder="Motivo (merma, error de carga…)"
-          className="min-w-48 flex-1 rounded border border-stone-300 px-2 py-1" />
+          className="input min-w-48 flex-1" />
       </div>
       {hasCount && (
-        <p data-testid="adjust-preview" className={resulting < 0 ? "text-red-700" : "text-stone-700"}>
+        <p data-testid="adjust-preview" className={`rounded-lg px-3 py-2 ${resulting < 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>
           {resulting < 0
             ? "Lo contado no cubre lo comprometido hoy."
             : `Quedarán ${show(resulting, unitLabel)} disponibles (${delta >= 0 ? "+" : ""}${show(delta, unitLabel)}).`}
         </p>
       )}
-      <button disabled={pending} className="rounded bg-red-800 px-3 py-1.5 text-white disabled:opacity-50">
+      <button disabled={pending} className="btn-primary">
         {pending ? "Guardando…" : "Guardar reajuste"}
       </button>
-      {state.error && <p role="status" className="text-red-700">{state.error}</p>}
-      {state.ok && <p role="status" className="text-green-700">{state.ok}</p>}
+      {state.error && <p role="status" className="text-error">{state.error}</p>}
+      {state.ok && <p role="status" className="text-success">{state.ok}</p>}
     </form>
   );
 }

@@ -75,8 +75,8 @@ export function PendingBadge() {
       data-testid="pending-badge"
       data-stale={state.stale}
       title={state.stale ? "No se pudo actualizar: es el último valor conocido" : undefined}
-      className={`rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${
-        state.stale ? "bg-stone-200 text-stone-600" : "bg-red-800 text-white"
+      className={`-ml-1 mr-2 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap tabular-nums ring-1 ring-inset ${
+        state.stale ? "bg-stone-100 text-stone-600 ring-stone-200" : "bg-brand-700 text-white ring-brand-800"
       }`}
     >
       {badgeLabel(state)}

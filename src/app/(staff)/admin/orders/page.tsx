@@ -12,41 +12,45 @@ export default async function OrdersPage() {
   const pending = orders.filter((o) => o.status === "DRAFT").length;
 
   return (
-    <section>
-      <div className="mb-4 flex items-baseline gap-3">
-        <h1 className="text-xl font-bold">Pedidos</h1>
-        <span data-testid="pending-count" className="rounded-full bg-red-800 px-2 py-0.5 text-xs font-medium text-white">
+    <section className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="page-title">Pedidos</h1>
+          <p className="page-subtitle">Revisá los borradores que llegan por WhatsApp y confirmalos.</p>
+        </div>
+        <span data-testid="pending-count" className="rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-800 ring-1 ring-brand-200 ring-inset">
           {pending} por confirmar
         </span>
       </div>
       {orders.length === 0 ? (
-        <p className="rounded-lg bg-white p-6 text-stone-500">
-          Todavía no hay pedidos. Enviá un mensaje desde el simulador para crear el primero.
-        </p>
+        <div className="card flex flex-col items-center gap-2 px-6 py-14 text-center">
+          <p className="font-display text-lg font-semibold text-stone-800">Todavía no hay pedidos</p>
+          <p className="max-w-sm text-sm text-stone-500">Enviá un mensaje desde el simulador para crear el primero.</p>
+        </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg bg-white shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="bg-stone-100 text-left text-stone-600">
+        <div className="card overflow-x-auto">
+          <table className="data-table">
+            <thead>
               <tr>
-                <th className="px-4 py-2">Ref.</th>
-                <th className="px-4 py-2">Cliente</th>
-                <th className="px-4 py-2">Líneas</th>
-                <th className="px-4 py-2">Total</th>
-                <th className="px-4 py-2">Estado</th>
-                <th className="px-4 py-2">Recibido</th>
+                <th>Ref.</th>
+                <th>Cliente</th>
+                <th className="text-right">Líneas</th>
+                <th className="text-right">Total</th>
+                <th>Estado</th>
+                <th>Recibido</th>
               </tr>
             </thead>
             <tbody>
               {orders.map((o) => (
-                <tr key={o.id} className="border-t border-stone-100 hover:bg-stone-50">
-                  <td className="px-4 py-2 font-mono">
-                    <Link href={`/admin/orders/${o.id}`} className="text-red-800 hover:underline">{o.reference}</Link>
+                <tr key={o.id} className={`hover:bg-stone-50 ${o.status === "DRAFT" ? "bg-amber-50/30" : ""}`}>
+                  <td className="font-mono font-semibold">
+                    <Link href={`/admin/orders/${o.id}`} className="text-brand-700 hover:underline">{o.reference}</Link>
                   </td>
-                  <td className="px-4 py-2">{o.customer.profileName ?? o.customer.phoneE164}</td>
-                  <td className="px-4 py-2">{o._count.items}</td>
-                  <td className="px-4 py-2">{formatChf(o.totalCents)}</td>
-                  <td className="px-4 py-2"><StatusBadge status={o.status} /></td>
-                  <td className="px-4 py-2 text-stone-500">{o.createdAt.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })}</td>
+                  <td className="font-medium text-stone-800">{o.customer.profileName ?? o.customer.phoneE164}</td>
+                  <td className="text-right text-stone-600">{o._count.items}</td>
+                  <td className="text-right font-medium whitespace-nowrap">{formatChf(o.totalCents)}</td>
+                  <td><StatusBadge status={o.status} /></td>
+                  <td className="whitespace-nowrap text-stone-500">{o.createdAt.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })}</td>
                 </tr>
               ))}
             </tbody>

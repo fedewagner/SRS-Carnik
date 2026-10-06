@@ -1,7 +1,97 @@
 @import "tailwindcss";
 
+/* Identidad: bordó de carnicería sobre papel crema. Las fuentes llegan por next/font en layout.tsx. */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+
+  --color-brand-50: #fbf3f2;
+  --color-brand-100: #f6e2df;
+  --color-brand-200: #ecc3bd;
+  --color-brand-600: #a3242a;
+  --color-brand-700: #8a1c22;
+  --color-brand-800: #6f161b;
+  --color-brand-900: #4a0f12;
+
+  --color-paper: #f7f3ee;
+  --color-line: #e8e1d9;
+}
+
 body {
-  background: #f7f5f2;
-  color: #1c1917;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--color-paper);
+  color: var(--color-stone-900);
+  font-feature-settings: "cv11", "ss01";
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-medium whitespace-nowrap
+    transition-all focus-visible:ring-3 focus-visible:ring-brand-200 focus-visible:outline-none
+    disabled:cursor-not-allowed disabled:opacity-55 active:translate-y-px;
+}
+
+@layer components {
+  .page-title {
+    @apply font-display text-3xl font-semibold tracking-tight text-stone-900;
+  }
+  .page-subtitle {
+    @apply mt-1 text-sm text-stone-500;
+  }
+  .back-link {
+    @apply inline-flex items-center gap-1 text-sm text-stone-500 transition-colors hover:text-brand-700;
+  }
+
+  .card {
+    @apply rounded-xl border border-line bg-white shadow-[0_1px_2px_rgb(28_25_23/0.04)];
+  }
+  .card-title {
+    @apply text-sm font-semibold text-stone-800;
+  }
+
+  .input {
+    @apply rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-900 shadow-[inset_0_1px_1px_rgb(28_25_23/0.04)]
+      transition-colors placeholder:text-stone-400 hover:border-stone-400
+      focus:border-brand-600 focus:ring-3 focus:ring-brand-100 focus:outline-none;
+  }
+  .field-label {
+    @apply text-xs font-medium text-stone-600;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-700 text-white shadow-sm hover:bg-brand-800;
+  }
+  .btn-secondary {
+    @apply btn border border-brand-200 bg-white text-brand-700 hover:border-brand-600 hover:bg-brand-50;
+  }
+  .btn-lg {
+    @apply px-5 py-2.5 text-base;
+  }
+  .btn-link {
+    @apply text-xs font-medium text-brand-700 hover:underline disabled:opacity-50;
+  }
+
+  .data-table {
+    @apply w-full text-sm tabular-nums;
+  }
+  .data-table thead {
+    @apply border-b border-line bg-stone-50/70 text-left text-[11px] font-semibold tracking-wider text-stone-500 uppercase;
+  }
+  .data-table th {
+    @apply px-4 py-2.5 font-semibold;
+  }
+  .data-table td {
+    @apply px-4 py-3;
+  }
+  .data-table tbody tr {
+    @apply border-t border-stone-100 transition-colors first:border-t-0;
+  }
+
+  .alert-error {
+    @apply rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800;
+  }
+  .text-success {
+    @apply text-sm font-medium text-emerald-700;
+  }
+  .text-error {
+    @apply text-sm font-medium text-red-700;
+  }
 }
