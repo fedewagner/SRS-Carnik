@@ -14,6 +14,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           <span className="font-bold text-red-800">Carnik</span>
           <Link href="/admin/orders" className="text-sm hover:underline">Pedidos</Link>
           <PendingBadge />
+          <Link href="/dashboard" className="text-sm hover:underline">Cola de armado</Link>
           {simulator && <Link href="/simulator" className="text-sm hover:underline">Simulador WhatsApp</Link>}
           <form action={logout} className="ml-auto">
             <button className="text-sm text-stone-500 hover:underline">Salir</button>

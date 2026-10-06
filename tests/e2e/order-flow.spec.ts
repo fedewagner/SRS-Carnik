@@ -91,4 +91,15 @@ test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ pag
     await expect(page.getByLabel("Escribir al cliente")).toHaveValue("");
     await expect(page.getByText(/Confirmado el/)).toBeVisible();
   });
+
+  await test.step("el pedido aparece en la cola de armado, sin el teléfono (US-13)", async () => {
+    const { reference } = await db.order.findFirstOrThrow({ where: { customer: { phoneE164: phone } } });
+    await page.getByRole("link", { name: "Cola de armado" }).click();
+    const card = page.getByTestId("queue-order").filter({ hasText: reference });
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("1.5 kg Entrecot");
+    await expect(card).toContainText("6 u. Salchicha Lyoner");
+    await expect(page.locator("main")).not.toContainText(phone);
+    await expect(page.getByRole("button", { name: "Confirmar pedido" })).toHaveCount(0);
+  });
 });
