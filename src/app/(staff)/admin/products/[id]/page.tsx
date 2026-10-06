@@ -24,19 +24,21 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const unit = unitLabel(product.unit);
 
   return (
-    <section className="space-y-4">
-      <div>
-        <Link href="/admin/products" className="text-sm text-stone-500 hover:underline">← Catálogo</Link>
-        <h1 className="text-xl font-bold">{product.name}</h1>
-        <p className="text-sm text-stone-600">
+    <section className="space-y-5">
+      <div className="space-y-2">
+        <Link href="/admin/products" className="back-link">← Catálogo</Link>
+        <h1 className="page-title">{product.name}</h1>
+        <p className="text-sm text-stone-600 tabular-nums">
           {formatChf(product.pricePerUnitCents)} / {unit} · {formatStock(product.stockQuantity, product.unit)} disponibles
         </p>
       </div>
 
+      <div className="grid gap-4 md:grid-cols-2">
       {user.role === "ADMIN" && (
         <PriceForm productId={product.id} currentCents={product.pricePerUnitCents} unitLabel={unit} />
       )}
       <StockIntakeForm productId={product.id} unitLabel={unit} />
+      </div>
       <StockAdjustForm
         productId={product.id}
         unitLabel={unit}
@@ -45,38 +47,38 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       />
 
       <div>
-        <h2 className="mb-2 font-semibold">Movimientos de existencias</h2>
+        <h2 className="mb-3 font-display text-lg font-semibold text-stone-900">Movimientos de existencias</h2>
         {product.stockMovements.length === 0 ? (
-          <p className="rounded-lg bg-white p-4 text-sm text-stone-500">Sin movimientos registrados todavía.</p>
+          <p className="card p-6 text-center text-sm text-stone-500">Sin movimientos registrados todavía.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg bg-white shadow-sm">
-            <table className="w-full text-sm" data-testid="movements">
-              <thead className="bg-stone-100 text-left text-stone-600">
+          <div className="card overflow-x-auto">
+            <table className="data-table" data-testid="movements">
+              <thead>
                 <tr>
-                  <th className="px-4 py-2">Fecha</th>
-                  <th className="px-4 py-2">Tipo</th>
-                  <th className="px-4 py-2 text-right">Anterior</th>
-                  <th className="px-4 py-2 text-right">Variación</th>
-                  <th className="px-4 py-2 text-right">Resultado</th>
-                  <th className="px-4 py-2">Detalle</th>
-                  <th className="px-4 py-2">Usuario</th>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th className="text-right">Anterior</th>
+                  <th className="text-right">Variación</th>
+                  <th className="text-right">Resultado</th>
+                  <th>Detalle</th>
+                  <th>Usuario</th>
                 </tr>
               </thead>
               <tbody>
                 {product.stockMovements.map((m) => (
-                  <tr key={m.id} className="border-t border-stone-100">
-                    <td className="whitespace-nowrap px-4 py-2 text-stone-500">
+                  <tr key={m.id}>
+                    <td className="whitespace-nowrap text-stone-500">
                       {m.createdAt.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })}
                     </td>
-                    <td className="px-4 py-2">{MOVEMENT_LABEL[m.type]}</td>
-                    <td className="whitespace-nowrap px-4 py-2 text-right">{formatStock(m.previousQuantity, product.unit)}</td>
-                    <td className={`whitespace-nowrap px-4 py-2 text-right ${m.quantityDelta.isNegative() ? "text-red-700" : "text-green-700"}`}>
+                    <td>{MOVEMENT_LABEL[m.type]}</td>
+                    <td className="whitespace-nowrap text-right">{formatStock(m.previousQuantity, product.unit)}</td>
+                    <td className={`whitespace-nowrap text-right ${m.quantityDelta.isNegative() ? "text-red-700" : "text-green-700"}`}>
                       {m.quantityDelta.isNegative() ? "" : "+"}{formatStock(m.quantityDelta, product.unit)}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-2 text-right">{formatStock(m.resultingQuantity, product.unit)}</td>
-                    <td className="px-4 py-2 text-stone-600">
+                    <td className="whitespace-nowrap text-right">{formatStock(m.resultingQuantity, product.unit)}</td>
+                    <td className="text-stone-600">
                       {m.order && (
-                        <Link href={`/admin/orders/${m.order.id}`} className="font-mono text-red-800 hover:underline">{m.order.reference}</Link>
+                        <Link href={`/admin/orders/${m.order.id}`} className="font-mono font-medium text-brand-700 hover:underline">{m.order.reference}</Link>
                       )}
                       {m.type === "COUNT_ADJUSTMENT" && (
                         <>
@@ -85,7 +87,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                         </>
                       )}
                     </td>
-                    <td className="px-4 py-2 text-stone-500">{m.user.email}</td>
+                    <td className="text-stone-500">{m.user.email}</td>
                   </tr>
                 ))}
               </tbody>

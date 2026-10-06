@@ -24,7 +24,7 @@ export type OrderLineView = {
 
 const chf = (cents: number) => `CHF ${(cents / 100).toFixed(2)}`;
 const unitLabel = (unit?: Unit) => (unit === "PIECE" ? "u." : unit ? "kg" : "");
-const inputClass = "w-16 rounded border border-stone-300 px-2 py-1";
+const inputClass = "input w-20 px-2 py-1";
 const linkButton = "text-xs text-red-800 hover:underline disabled:opacity-50";
 
 /**
@@ -54,10 +54,10 @@ export function OrderLineRow({
   );
 
   return (
-    <tr data-testid="order-line" className="border-t border-stone-100 align-top">
-      <td className="px-4 py-2">
+    <tr data-testid="order-line" className={`align-top ${line.product ? "" : "bg-amber-50/50"}`}>
+      <td>
         {line.product ? (
-          line.product.name
+          <span className="font-medium text-stone-900">{line.product.name}</span>
         ) : editable ? (
           <form action={resolve} className="flex flex-wrap items-center gap-1">
             {ids}
@@ -66,7 +66,7 @@ export function OrderLineRow({
               required
               defaultValue=""
               aria-label={`Producto para «${line.rawText}»`}
-              className="rounded border border-amber-400 bg-amber-50 px-2 py-1"
+              className="input border-amber-400 bg-amber-50 px-2 py-1"
             >
               <option value="" disabled>
                 Elegir producto…
@@ -89,11 +89,11 @@ export function OrderLineRow({
             </button>
           </form>
         ) : (
-          <span className="text-amber-700">Sin reconocer</span>
+          <span className="font-medium text-amber-700">Sin reconocer</span>
         )}
-        <div className="text-xs text-stone-500">“{line.rawText}”</div>
+        <div className="mt-0.5 text-xs text-stone-500 italic">“{line.rawText}”</div>
         {line.hasStockWarning && editable && line.product && (
-          <div className="text-xs font-medium text-red-700">Supera el stock disponible</div>
+          <div className="mt-1 inline-flex rounded-md bg-red-50 px-1.5 py-0.5 text-xs font-medium text-red-700">Supera el stock disponible</div>
         )}
         {error && (
           <div role="status" className="text-xs font-medium text-red-700">
@@ -101,9 +101,9 @@ export function OrderLineRow({
           </div>
         )}
       </td>
-      <td className="px-4 py-2">
+      <td>
         {editable && line.product ? (
-          <form action={update} className="flex items-center gap-1">
+          <form action={update} className="flex items-center gap-1.5">
             {ids}
             <input
               name="quantity"
@@ -127,20 +127,20 @@ export function OrderLineRow({
       </td>
       <td
         data-testid="line-stock"
-        className={`whitespace-nowrap px-4 py-2 ${line.hasStockWarning && editable ? "font-medium text-red-700" : "text-stone-600"}`}
+        className={`whitespace-nowrap ${line.hasStockWarning && editable ? "font-medium text-red-700" : "text-stone-600"}`}
       >
         {line.product ? `${Number(line.product.stockQuantity)} ${unitLabel(line.product.unit)}` : "—"}
       </td>
-      <td className="whitespace-nowrap px-4 py-2">{line.product ? chf(line.unitPriceCents) : "—"}</td>
-      <td className="whitespace-nowrap px-4 py-2 text-right">
-        {chf(line.lineTotalCents)}
+      <td className="whitespace-nowrap text-stone-600">{line.product ? chf(line.unitPriceCents) : "—"}</td>
+      <td className="whitespace-nowrap text-right">
+        <span className="font-medium">{chf(line.lineTotalCents)}</span>
         {editable && (
           <form action={remove}>
             {ids}
             <button
               disabled={removing}
               aria-label={`Eliminar ${line.product?.name ?? "línea sin reconocer"}`}
-              className="text-xs text-stone-500 hover:text-red-700 hover:underline disabled:opacity-50"
+              className="mt-1 text-xs text-stone-400 transition-colors hover:text-red-700 hover:underline disabled:opacity-50"
             >
               Eliminar
             </button>

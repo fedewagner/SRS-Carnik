@@ -41,7 +41,7 @@ Ninguna respuesta automática SHALL contener texto redactado por el componente d
 - **THEN** el sistema responde con el precio vigente y la disponibilidad del entrecot
 - **AND** no crea ningún `Order`
 
-#### Scenario: Consulta que no es de catálogo
+#### Scenario: Consulta
 
 - **GIVEN** un cliente sin borrador abierto
 - **WHEN** escribe "¿abren el sábado?"

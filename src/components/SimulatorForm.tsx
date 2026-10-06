@@ -51,56 +51,56 @@ export function SimulatorForm() {
 
   return (
     <div className="space-y-4">
-      <form onSubmit={send} className="space-y-3 rounded-lg bg-white p-4 shadow-sm">
+      <form onSubmit={send} className="card space-y-4 p-5">
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">
+          <label className="field-label">
             Teléfono (E.164)
             <input value={phone} onChange={(e) => setPhone(e.target.value)} name="phoneE164"
-              className="mt-1 w-full rounded border border-stone-300 px-3 py-2" />
+              className="input mt-1.5 w-full py-2" />
           </label>
-          <label className="text-sm">
+          <label className="field-label">
             Nombre de perfil
             <input value={name} onChange={(e) => setName(e.target.value)} name="profileName"
-              className="mt-1 w-full rounded border border-stone-300 px-3 py-2" />
+              className="input mt-1.5 w-full py-2" />
           </label>
         </div>
-        <label className="block text-sm">
+        <label className="field-label block">
           Mensaje
           <textarea value={text} onChange={(e) => setText(e.target.value)} name="text" rows={3}
-            className="mt-1 w-full rounded border border-stone-300 px-3 py-2" />
+            className="input mt-1.5 w-full py-2" />
         </label>
-        <button disabled={pending} className="rounded bg-green-700 px-4 py-2 font-medium text-white disabled:opacity-60">
+        <button disabled={pending} className="btn bg-emerald-700 px-5 py-2 text-white shadow-sm hover:bg-emerald-800">
           {pending ? "Interpretando…" : "Enviar mensaje"}
         </button>
       </form>
 
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+      {error && <p role="alert" className="alert-error">{error}</p>}
 
       {result?.reply && (
-        <div data-testid="auto-reply" className="rounded-lg bg-green-50 p-4 text-sm">
+        <div data-testid="auto-reply" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm">
           <p className="mb-1 font-semibold">Sin pedido. Respuesta automática enviada:</p>
           <p className="whitespace-pre-line">{result.reply}</p>
         </div>
       )}
 
       {result?.appendedToOrderId && (
-        <p className="rounded-lg bg-amber-50 p-4 text-sm">
+        <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
           Este cliente ya tiene un pedido en borrador: el mensaje se sumó a su conversación.{" "}
-          <Link href={`/admin/orders/${result.appendedToOrderId}`} className="text-red-800 underline">Ver pedido</Link>
+          <Link href={`/admin/orders/${result.appendedToOrderId}`} className="font-medium text-brand-700 underline">Ver pedido</Link>
         </p>
       )}
 
       {result?.order && (
-        <div data-testid="draft-result" className="rounded-lg bg-white p-4 shadow-sm">
+        <div data-testid="draft-result" className="card p-5">
           <p className="mb-2 font-semibold">
             Borrador <span className="font-mono">{result.order.reference}</span>{" "}
             <span className="text-sm font-normal text-stone-500">
               ({result.order.draftedBy === "AI" ? "AI" : "reglas"})
             </span>
           </p>
-          <ul className="space-y-1 text-sm">
+          <ul className="divide-y divide-stone-100 text-sm tabular-nums">
             {result.order.items.map((i) => (
-              <li key={i.id}>
+              <li key={i.id} className="py-1.5">
                 {Number(i.quantity)} {i.product?.unit === "PIECE" ? "u." : i.product ? "kg" : ""}{" "}
                 {i.product?.name ?? <em className="text-amber-700">sin reconocer: “{i.rawText}”</em>} —{" "}
                 {chf(i.lineTotalCents)}
@@ -108,8 +108,8 @@ export function SimulatorForm() {
               </li>
             ))}
           </ul>
-          <p className="mt-2 font-bold">Total: {chf(result.order.totalCents)}</p>
-          <Link href={`/admin/orders/${result.order.id}`} className="mt-3 inline-block text-red-800 underline">
+          <p className="mt-3 border-t border-line pt-3 text-right font-bold">Total: {chf(result.order.totalCents)}</p>
+          <Link href={`/admin/orders/${result.order.id}`} className="btn-primary mt-4">
             Abrir en el backoffice →
           </Link>
         </div>

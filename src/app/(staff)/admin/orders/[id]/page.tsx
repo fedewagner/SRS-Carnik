@@ -27,27 +27,35 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
     : [];
 
   return (
-    <section className="grid gap-6 md:grid-cols-[3fr_2fr]">
-      <div className="space-y-4">
-        <Link href="/admin/orders" className="text-sm text-stone-500 hover:underline">← Pedidos</Link>
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h1 className="font-mono text-2xl font-bold">{order.reference}</h1>
-          <StatusBadge status={order.status} />
-          <span className="text-sm text-stone-500">
-            {order.customer.profileName ?? "Cliente"} · {order.customer.phoneE164} ·{" "}
-            {order.draftedBy === "AI" ? "interpretado con AI" : "interpretado por reglas"}
-          </span>
+    <section className="space-y-6">
+      <Link href="/admin/orders" className="back-link">← Pedidos</Link>
+      <div className="grid items-start gap-6 lg:grid-cols-[3fr_2fr]">
+      <div className="space-y-5">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="font-mono text-3xl font-bold tracking-tight text-stone-900">{order.reference}</h1>
+            <StatusBadge status={order.status} />
+          </div>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-stone-500">
+            <span className="font-medium text-stone-800">{order.customer.profileName ?? "Cliente"}</span>
+            <span aria-hidden>·</span>
+            <span className="tabular-nums">{order.customer.phoneE164}</span>
+            <span aria-hidden>·</span>
+            <span className="rounded-md bg-stone-100 px-1.5 py-0.5 text-xs font-medium text-stone-600">
+              {order.draftedBy === "AI" ? "interpretado con AI" : "interpretado por reglas"}
+            </span>
+          </p>
         </div>
 
-        <div className="overflow-x-auto rounded-lg bg-white shadow-sm">
-          <table className="w-full text-sm">
-            <thead className="bg-stone-100 text-left text-stone-600">
+        <div className="card overflow-x-auto">
+          <table className="data-table">
+            <thead>
               <tr>
-                <th className="px-4 py-2">Producto</th>
-                <th className="px-4 py-2">Cantidad</th>
-                <th className="px-4 py-2" title="Existencias actuales, ya descontados los pedidos confirmados">Stock disponible</th>
-                <th className="px-4 py-2">Precio</th>
-                <th className="px-4 py-2 text-right">Importe</th>
+                <th>Producto</th>
+                <th>Cantidad</th>
+                <th title="Existencias actuales, ya descontados los pedidos confirmados">Stock disponible</th>
+                <th>Precio</th>
+                <th className="text-right">Importe</th>
               </tr>
             </thead>
             <tbody>
@@ -74,9 +82,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               ))}
             </tbody>
             <tfoot>
-              <tr className="border-t border-stone-200 font-bold">
-                <td className="px-4 py-2" colSpan={4}>Total</td>
-                <td data-testid="order-total" className="whitespace-nowrap px-4 py-2 text-right">{formatChf(order.totalCents)}</td>
+              <tr className="border-t border-line bg-stone-50/70">
+                <td className="px-4 py-3 text-sm font-semibold text-stone-600" colSpan={4}>Total</td>
+                <td data-testid="order-total" className="px-4 py-3 text-right text-lg font-bold whitespace-nowrap tabular-nums text-stone-900">{formatChf(order.totalCents)}</td>
               </tr>
             </tfoot>
           </table>
@@ -87,34 +95,45 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         {order.status === "DRAFT" ? (
           <ConfirmOrderButton orderId={order.id} hasLines={resolvedLines > 0} />
         ) : (
-          <p className="text-sm text-green-800">
+          <p className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <span aria-hidden>✓</span>
             Confirmado el {order.confirmedAt?.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })} por {order.confirmedBy?.email}.
           </p>
         )}
       </div>
 
-      <aside className="rounded-lg bg-white p-4 shadow-sm">
-        <h2 className="mb-3 font-semibold">Conversación</h2>
-        <ol className="space-y-2">
+      <aside className="card overflow-hidden lg:sticky lg:top-20">
+        <div className="flex items-center justify-between border-b border-line px-4 py-3">
+          <h2 className="card-title">Conversación</h2>
+          <span className="text-xs text-stone-500">WhatsApp</span>
+        </div>
+        <ol className="max-h-[28rem] space-y-2 overflow-y-auto bg-[#efe9e1] px-3 py-4">
           {order.conversation.messages.map((m) => (
             <li
               key={m.id}
               data-testid={`message-${m.direction.toLowerCase()}`}
-              className={`whitespace-pre-line rounded-lg px-3 py-2 text-sm ${
-                m.direction === "INBOUND" ? "mr-8 bg-stone-100" : "ml-8 bg-green-100"
+              className={`w-fit max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-line shadow-sm ${
+                m.direction === "INBOUND" ? "mr-auto rounded-tl-sm bg-white" : "ml-auto rounded-tr-sm bg-[#d9fdd3]"
               }`}
             >
               {m.body}
-              <div className="mt-1 text-[10px] text-stone-500">
+              <div className="mt-1 text-right text-[10px] text-stone-500">
                 {m.createdAt.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })}
-                {m.direction === "OUTBOUND" && ` · ${m.status === "SENT" ? "enviado" : "falló"}`}
+                {m.direction === "OUTBOUND" && (
+                  <span className={m.status === "SENT" ? "" : "font-semibold text-red-700"}>
+                    {` · ${m.status === "SENT" ? "enviado" : "falló"}`}
+                  </span>
+                )}
                 {m.sentBy && <span data-testid="message-author"> · por {m.sentBy.email}</span>}
               </div>
             </li>
           ))}
         </ol>
-        <ManualMessageForm orderId={order.id} />
+        <div className="border-t border-line px-4 pb-4">
+          <ManualMessageForm orderId={order.id} />
+        </div>
       </aside>
+      </div>
     </section>
   );
 }

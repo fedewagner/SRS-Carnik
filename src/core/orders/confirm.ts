@@ -14,6 +14,7 @@ export type InsufficientLine = {
 
 export type ConfirmResult =
   | { kind: "not_found" }
+  | { kind: "no_lines" }
   | { kind: "insufficient_stock"; lines: InsufficientLine[] }
   | {
       kind: "confirmed";
@@ -23,6 +24,9 @@ export type ConfirmResult =
     };
 
 type ConfirmedItem = Prisma.OrderItemGetPayload<{ include: { product: true } }>;
+
+/** Sin líneas con producto no hay nada que armar: confirmar sólo mandaría un total de cero. */
+class NoLinesError extends Error {}
 
 class InsufficientStockError extends Error {
   constructor(readonly items: ConfirmedItem[]) {
@@ -55,6 +59,7 @@ export async function confirmOrder(orderId: string, userId: string): Promise<Con
         include: { product: true },
         orderBy: { createdAt: "asc" },
       });
+      if (items.length === 0) throw new NoLinesError();
       // Productos bloqueados en orden de id para no cruzarse con otra confirmación (D2 de
       // add-catalog-management); cada descuento deja su asiento en el libro de existencias.
       const byProduct = [...items].sort((a, b) => a.productId!.localeCompare(b.productId!));
@@ -102,6 +107,7 @@ export async function confirmOrder(orderId: string, userId: string): Promise<Con
       summaryMessage: { status: summary.status ?? "SENT", messageId: summary.id },
     };
   } catch (error) {
+    if (error instanceof NoLinesError) return { kind: "no_lines" };
     if (!(error instanceof InsufficientStockError)) throw error;
     // El updateMany no dice qué faltó: se relee para construir el detalle (trade-off de D10).
     const resolved = error.items;

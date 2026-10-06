@@ -37,7 +37,7 @@ export function ConfirmOrderButton({ orderId, hasLines }: { orderId: string; has
   }
 
   if (!hasLines) {
-    return <p className="text-sm text-stone-500">El pedido no tiene líneas reconocidas: no se puede confirmar.</p>;
+    return <p className="rounded-lg border border-dashed border-stone-300 px-4 py-3 text-sm text-stone-500">El pedido no tiene líneas reconocidas: no se puede confirmar.</p>;
   }
 
   return (
@@ -45,14 +45,14 @@ export function ConfirmOrderButton({ orderId, hasLines }: { orderId: string; has
       <button
         onClick={confirm}
         disabled={state.kind === "loading"}
-        className="rounded bg-red-800 px-5 py-2 font-medium text-white disabled:opacity-60"
+        className="btn-primary btn-lg"
       >
         {state.kind === "loading" ? "Confirmando…" : "Confirmar pedido"}
       </button>
       {state.kind === "insufficient" && (
-        <div role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+        <div role="alert" className="alert-error p-3">
           <p className="font-medium">No hay existencias suficientes:</p>
-          <ul className="list-disc pl-5">
+          <ul className="mt-1 list-disc pl-5">
             {state.lines.map((l) => (
               <li key={l.orderItemId}>
                 {l.productName}: pedido {Number(l.requested)}, disponible {Number(l.available)}
@@ -61,7 +61,7 @@ export function ConfirmOrderButton({ orderId, hasLines }: { orderId: string; has
           </ul>
         </div>
       )}
-      {state.kind === "error" && <p role="alert" className="text-sm text-red-700">{state.message}</p>}
+      {state.kind === "error" && <p role="alert" className="alert-error">{state.message}</p>}
     </div>
   );
 }

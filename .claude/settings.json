@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "ClaudeInChromeDomain(localhost:3005)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-env.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}

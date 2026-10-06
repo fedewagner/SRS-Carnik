@@ -76,6 +76,17 @@ describe("confirmOrder (US-10)", () => {
     expect(await summaries()).toHaveLength(1);
   });
 
+  it("no confirma un borrador sin líneas con producto y lo deja en borrador", async () => {
+    const order = await draftFrom("2 kg de entrecot");
+    await db.orderItem.deleteMany({ where: { orderId: order.id } });
+
+    const result = await confirmOrder(order.id, employeeId);
+
+    expect(result.kind).toBe("no_lines");
+    expect((await db.order.findUniqueOrThrow({ where: { id: order.id } })).status).toBe("DRAFT");
+    expect(await summaries()).toHaveLength(0);
+  });
+
   it("no encuentra un pedido inexistente", async () => {
     expect(await confirmOrder("cnotexisting0000000000000", employeeId)).toEqual({ kind: "not_found" });
   });
@@ -110,6 +121,18 @@ describe("ingestInboundMessage (US-02, US-05)", () => {
     expect(ack.body).toContain("Revisamos a mano: «2 kg de cordero»");
     expect(ack.body).not.toMatch(/CHF/);
   });
+
+  it.each(["600000 kg de entrecot", "0,0001 kg de entrecot"])(
+    "una cantidad fuera de rango («%s») queda sin valorar para revisión manual",
+    async (text) => {
+      const order = await draftFrom(text);
+      const [line] = order.items;
+      expect(line).toMatchObject({ productId: null, lineTotalCents: 0 });
+      expect(order.totalCents).toBe(0);
+      const [ack] = await db.message.findMany({ where: { direction: "OUTBOUND" } });
+      expect(ack.body).toContain("Revisamos a mano");
+    },
+  );
 
   it("un segundo mensaje con borrador abierto se suma a la conversación", async () => {
     const first = await draftFrom("1 kg de entrecot");

@@ -6,7 +6,7 @@ import type { Intent } from "@/core/drafting/schema";
 import type { DraftResult } from "@/core/drafting/types";
 import { createDraftOrder } from "@/core/orders/createDraft";
 import { findLastConfirmedOrder, repeatLines } from "@/core/orders/repeat";
-import { catalogAnswerFor } from "./catalog-answer";
+import { catalogAnswerFor } from "./catalogAnswer";
 import { sendOutboundMessage } from "./outbound";
 import { enforceMessageLimit } from "./rateLimit";
 import {

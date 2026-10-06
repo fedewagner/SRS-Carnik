@@ -121,6 +121,8 @@ La confirmación **sí** es un route handler, no una server action, por dos moti
 
 ### D7 — Firma HMAC sobre el cuerpo crudo, verificada antes de parsear
 
+> **Revertida por el change `add-whatsapp-twilio-channel` (decisión T1).** El canal real es Twilio WhatsApp Sandbox, no Meta Cloud API: había cuenta de Twilio y no app de Meta, y el sandbox permite a un evaluador probar desde su teléfono. La trampa que motivaba esta decisión —la firma de Twilio sobre la URL pública detrás del proxy— se neutraliza validando contra la variable fija `TWILIO_WEBHOOK_URL` (T2). El texto de abajo se conserva como registro de la decisión original.
+
 En `POST /api/webhooks/whatsapp` se lee `await req.text()` **antes** de cualquier parseo, se calcula HMAC-SHA256 con `META_APP_SECRET` y se compara contra `X-Hub-Signature-256` en tiempo constante. Si no valida: 403 y retorno inmediato, sin tocar la base ni invocar al LLM.
 
 *Justificación de la elección de proveedor:* Meta firma sobre el cuerpo, no sobre la URL. Con Twilio (HMAC-SHA1 sobre la URL exacta) habría que reconstruir la URL pública desde `X-Forwarded-Proto` / `X-Forwarded-Host` porque Railway termina TLS — una hora de depuración que este diseño evita por construcción.

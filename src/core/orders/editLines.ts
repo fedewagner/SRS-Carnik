@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { isValidQuantity, lineTotalCents } from "./pricing";
+import { isValidLineQuantity, lineTotalCents } from "./pricing";
 
 export type EditResult =
   | { ok: true }
@@ -60,7 +60,7 @@ export function updateLineQuantity(orderId: string, itemId: string, quantity: st
     if (!item) throw new EditRejected("NOT_FOUND");
     if (!item.product) throw new EditRejected("UNRESOLVED_LINE");
     const q = new Prisma.Decimal(quantity);
-    if (!isValidQuantity(item.product.unit, q)) throw new EditRejected("INVALID_QUANTITY");
+    if (!isValidLineQuantity(item.product.unit, q)) throw new EditRejected("INVALID_QUANTITY");
     // Al cambiar sólo la cantidad se conserva el precio copiado al crear la línea (decisión 4 de §3).
     await tx.orderItem.update({
       where: { id: itemId },
@@ -81,7 +81,7 @@ export function addLine(orderId: string, productId: string, quantity: string) {
     const product = await tx.product.findFirst({ where: { id: productId, isActive: true } });
     if (!product) throw new EditRejected("NOT_FOUND");
     const q = new Prisma.Decimal(quantity);
-    if (!isValidQuantity(product.unit, q)) throw new EditRejected("INVALID_QUANTITY");
+    if (!isValidLineQuantity(product.unit, q)) throw new EditRejected("INVALID_QUANTITY");
     await tx.orderItem.create({
       data: {
         orderId,
@@ -106,7 +106,7 @@ export function resolveLine(orderId: string, itemId: string, productId: string, 
     const product = await tx.product.findFirst({ where: { id: productId, isActive: true } });
     if (!product) throw new EditRejected("NOT_FOUND");
     const q = new Prisma.Decimal(quantity);
-    if (!isValidQuantity(product.unit, q)) throw new EditRejected("INVALID_QUANTITY");
+    if (!isValidLineQuantity(product.unit, q)) throw new EditRejected("INVALID_QUANTITY");
     await tx.orderItem.update({
       where: { id: itemId },
       data: { productId, unitPriceCents: product.pricePerUnitCents, ...priceLine(product, q) },

@@ -12,7 +12,7 @@ export type LineActionState = { error?: string };
 const MESSAGES: Record<Exclude<EditResult, { ok: true }>["code"], string> = {
   ORDER_NOT_DRAFT: "El pedido ya no está en borrador: no se puede editar.",
   NOT_FOUND: "La línea o el producto ya no existe. Recargá la página.",
-  INVALID_QUANTITY: "Cantidad no válida para la unidad del producto (piezas enteras, kg hasta gramos).",
+  INVALID_QUANTITY: "Cantidad no válida: piezas enteras o kg hasta gramos, y como máximo 1000 por línea.",
   UNRESOLVED_LINE: "Esta línea no tiene producto: elegí uno del catálogo.",
   ALREADY_RESOLVED: "Esta línea ya tiene producto. Recargá la página.",
 };

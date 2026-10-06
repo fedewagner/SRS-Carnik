@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { formatChf, isValidQuantity, lineTotalCents, normalizeQuantity } from "@/core/orders/pricing";
+import {
+  boundedQuantity,
+  formatChf,
+  isValidLineQuantity,
+  isValidQuantity,
+  lineTotalCents,
+  MAX_LINE_QUANTITY,
+  normalizeQuantity,
+} from "@/core/orders/pricing";
 
 describe("lineTotalCents", () => {
   it("multiplica cantidad por precio en céntimos", () => {
@@ -37,6 +45,22 @@ describe("normalizeQuantity", () => {
   it("lleva la propuesta a lo que admite la unidad", () => {
     expect(normalizeQuantity("PIECE", 2.6).toString()).toBe("3");
     expect(normalizeQuantity("WEIGHT_KG", 0.12345).toString()).toBe("0.123");
+  });
+});
+
+describe("tope de una línea", () => {
+  it("admite hasta el tope y rechaza lo que desbordaría el total en céntimos", () => {
+    expect(isValidLineQuantity("WEIGHT_KG", String(MAX_LINE_QUANTITY))).toBe(true);
+    expect(isValidLineQuantity("WEIGHT_KG", "1000.001")).toBe(false);
+    expect(isValidLineQuantity("PIECE", "600000")).toBe(false);
+    expect(isValidLineQuantity("PIECE", "0")).toBe(false);
+  });
+
+  it("acota la cantidad de una mención sin resolver para que quepa en la base", () => {
+    expect(boundedQuantity(99_999_999).toString()).toBe(String(MAX_LINE_QUANTITY));
+    expect(boundedQuantity(-3).toString()).toBe("0");
+    expect(boundedQuantity(Number.POSITIVE_INFINITY).toString()).toBe("0");
+    expect(boundedQuantity(1.23456).toString()).toBe("1.235");
   });
 });
 

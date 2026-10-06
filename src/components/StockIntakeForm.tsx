@@ -8,18 +8,18 @@ import type { CatalogActionState } from "@/app/(staff)/admin/products/messages";
 export function StockIntakeForm({ productId, unitLabel }: { productId: string; unitLabel: string }) {
   const [state, action, pending] = useActionState<CatalogActionState, FormData>(intakeAction, {});
   return (
-    <form action={action} className="flex flex-wrap items-center gap-2 rounded-lg bg-white p-3 text-sm shadow-sm">
+    <form action={action} className="card flex flex-wrap items-center gap-2 p-4 text-sm">
       <input type="hidden" name="productId" value={productId} />
-      <span className="font-medium">Ingreso de envasado</span>
+      <span className="card-title w-full">Ingreso de envasado</span>
       <span className="text-stone-500">+</span>
       <input name="quantity" aria-label="Cantidad ingresada" required inputMode="decimal" placeholder="5"
-        className="w-20 rounded border border-stone-300 px-2 py-1" />
+        className="input w-24 tabular-nums" />
       <span className="text-stone-500">{unitLabel}</span>
-      <button disabled={pending} className="rounded border border-red-800 px-3 py-1 text-red-800 disabled:opacity-50">
+      <button disabled={pending} className="btn-secondary">
         {pending ? "Registrando…" : "Registrar ingreso"}
       </button>
-      {state.error && <span role="status" className="w-full text-red-700">{state.error}</span>}
-      {state.ok && <span role="status" className="w-full text-green-700">{state.ok}</span>}
+      {state.error && <span role="status" className="text-error w-full">{state.error}</span>}
+      {state.ok && <span role="status" className="text-success w-full">{state.ok}</span>}
     </form>
   );
 }

@@ -12,33 +12,36 @@ export default async function ProductsPage() {
   const products = await listCatalog();
 
   return (
-    <section className="space-y-4">
-      <h1 className="text-xl font-bold">Catálogo</h1>
-      <div className="overflow-x-auto rounded-lg bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead className="bg-stone-100 text-left text-stone-600">
+    <section className="space-y-6">
+      <div>
+        <h1 className="page-title">Catálogo</h1>
+        <p className="page-subtitle">Precios y existencias que usa Carnik para interpretar y valorar los pedidos.</p>
+      </div>
+      <div className="card overflow-x-auto">
+        <table className="data-table">
+          <thead>
             <tr>
-              <th className="px-4 py-2">Producto</th>
-              <th className="px-4 py-2">Precio</th>
-              <th className="px-4 py-2 text-right">Disponible</th>
-              <th className="px-4 py-2 text-right" title="Pedidos confirmados hoy, todavía en la cámara">Comprometido hoy</th>
+              <th>Producto</th>
+              <th>Precio</th>
+              <th className="text-right">Disponible</th>
+              <th className="text-right" title="Pedidos confirmados hoy, todavía en la cámara">Comprometido hoy</th>
             </tr>
           </thead>
           <tbody>
             {products.map((p) => (
-              <tr key={p.id} className="border-t border-stone-100 hover:bg-stone-50">
-                <td className="px-4 py-2">
-                  <Link href={`/admin/products/${p.id}`} className="text-red-800 hover:underline">{p.name}</Link>
+              <tr key={p.id} className="hover:bg-stone-50">
+                <td>
+                  <Link href={`/admin/products/${p.id}`} className="font-medium text-brand-700 hover:underline">{p.name}</Link>
                 </td>
-                <td className="whitespace-nowrap px-4 py-2">{formatChf(p.pricePerUnitCents)} / {unitLabel(p.unit)}</td>
-                <td className="whitespace-nowrap px-4 py-2 text-right">
+                <td className="whitespace-nowrap text-stone-600">{formatChf(p.pricePerUnitCents)} / {unitLabel(p.unit)}</td>
+                <td className="whitespace-nowrap text-right font-medium">
                   {p.stockQuantity.isZero() ? (
-                    <span className="rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">Agotado</span>
+                    <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700 ring-1 ring-red-200 ring-inset">Agotado</span>
                   ) : (
                     formatStock(p.stockQuantity, p.unit)
                   )}
                 </td>
-                <td className="whitespace-nowrap px-4 py-2 text-right text-stone-500">{formatStock(p.committed, p.unit)}</td>
+                <td className="whitespace-nowrap text-right text-stone-500">{formatStock(p.committed, p.unit)}</td>
               </tr>
             ))}
           </tbody>

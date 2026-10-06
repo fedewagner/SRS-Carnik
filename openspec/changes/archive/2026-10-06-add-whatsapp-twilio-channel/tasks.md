@@ -36,9 +36,9 @@
 
 ## 4. Despliegue y primer mensaje real
 
-- [ ] 4.1 Variables de Railway (`TWILIO_*`, todavía `WHATSAPP_TRANSPORT=log`), despliegue y alta de la URL en *Sandbox settings → When a message comes in*; enviar un mensaje desde el teléfono y comprobar el borrador en el backoffice. Toca: Railway y consola de Twilio
-- [ ] 4.2 `WHATSAPP_TRANSPORT=twilio`; comprobar que llegan el acuse y, tras confirmar, el resumen. Grabar el video de 2–3 minutos del flujo real. Toca: Railway
+- [x] 4.1 Variables de Railway (`TWILIO_*`, todavía `WHATSAPP_TRANSPORT=log`), despliegue y alta de la URL en *Sandbox settings → When a message comes in*; enviar un mensaje desde el teléfono y comprobar el borrador en el backoffice. Toca: Railway y consola de Twilio
+- [ ] 4.2 `WHATSAPP_TRANSPORT=twilio`; comprobar que llegan el acuse y, tras confirmar, el resumen. Grabar el video de 2–3 minutos del flujo real. Toca: Railway *(Técnicamente hecho: acuse y resumen llegan al teléfono. Queda pendiente sólo el video, a cargo del autor.)*
 
 ## 5. Documentación
 
-- [ ] 5.1 Nota de reversión en D7 de `openspec/changes/bootstrap-carnik/design.md` apuntando a T1; README §0 (alcance), §1.3 (cómo unirse al sandbox y probar desde el teléfono), §2.4 (variables y estado) y §7 (PR); entrada en `prompts.md` sobre el cambio de proveedor como decisión humana. Toca `readme.md`, `prompts.md`, `openspec/changes/bootstrap-carnik/design.md`
+- [x] 5.1 Nota de reversión en D7 de `openspec/changes/bootstrap-carnik/design.md` apuntando a T1; README §0 (alcance), §1.3 (cómo unirse al sandbox y probar desde el teléfono), §2.4 (variables y estado) y §7 (PR); entrada en `prompts.md` sobre el cambio de proveedor como decisión humana. Toca `readme.md`, `prompts.md`, `openspec/changes/bootstrap-carnik/design.md`

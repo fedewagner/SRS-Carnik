@@ -1,0 +1,649 @@
+openapi: 3.0.3
+info:
+  title: Carnik API
+  version: 1.2.0
+  description: |
+    Fronteras HTTP del sistema: la entrada real de mensajes de WhatsApp vía
+    Twilio, la entrada equivalente del simulador interno, la confirmación del
+    pedido —única operación con efectos irreversibles— y tres lecturas.
+
+    Las mutaciones del backoffice (editar líneas, escribir al cliente,
+    catálogo y existencias) son server actions de Next.js, sin contrato
+    público: no aparecen aquí.
+
+    Ningún esquema de respuesta expone `User.passwordHash` ni
+    `Message.providerMessageId`. Sólo el simulador devuelve el borrador
+    generado; ninguna respuesta incluye `Customer.phoneE164`.
+
+    Un error no controlado del servidor responde `500` con la página de
+    error de Next.js, no con el esquema `Error`.
+servers:
+  - url: https://srs-carnik-production.up.railway.app
+    description: Producción
+  - url: http://localhost:3000
+    description: Desarrollo local
+
+security:
+  - sessionCookie: []
+
+tags:
+  - name: Mensajería
+    description: Entrada de mensajes de clientes
+  - name: Pedidos
+    description: Confirmación y lecturas del backoffice
+  - name: Operación
+    description: Salud del servicio
+
+paths:
+  /api/webhooks/twilio:
+    post:
+      tags: [Mensajería]
+      operationId: ingestTwilioMessage
+      summary: Recibe un mensaje de WhatsApp desde Twilio
+      description: |
+        Punto de entrada de los mensajes reales de clientes. Se autoriza por
+        la firma `X-Twilio-Signature`, validada con `twilio.validateRequest`
+        contra la URL fija `TWILIO_WEBHOOK_URL`, nunca reconstruida desde
+        cabeceras del proxy. Sin las cuatro variables `TWILIO_*` rechaza toda
+        petición con 403 (fallo cerrado).
+
+        La respuesta al cliente no viaja en el TwiML: sale por el transporte
+        saliente, para que el simulador y el webhook compartan el mismo
+        núcleo. Un adjunto no se descarga: se registra sin contenido y se
+        pide el pedido por texto. La idempotencia la da el índice único de
+        `Message.providerMessageId`, que guarda el `MessageSid`.
+      security:
+        - twilioSignature: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TwilioInboundForm'
+      responses:
+        '200':
+          description: |
+            Mensaje aceptado, también cuando es un reintento del mismo
+            `MessageSid`, trae un adjunto, se suma a un borrador abierto o
+            supera el límite por remitente: no son errores del emisor y un
+            código de error provocaría reintentos.
+          content:
+            text/xml:
+              schema:
+                type: string
+                example: '<Response/>'
+        '400':
+          description: |
+            Firma válida pero formulario ilegible, `MessageSid` o remitente no
+            conformes, o texto vacío sin adjuntos.
+          content:
+            text/xml:
+              schema:
+                type: string
+                example: '<Response/>'
+        '403':
+          description: |
+            Firma ausente o inválida (calculada para otra URL o con un
+            parámetro alterado), o canal sin credenciales configuradas. No se
+            persiste nada ni se invoca al proveedor de AI.
+          content:
+            text/xml:
+              schema:
+                type: string
+                example: '<Response/>'
+
+  /api/simulator/messages:
+    post:
+      tags: [Mensajería]
+      operationId: simulateInboundMessage
+      summary: Inyecta un mensaje entrante sin pasar por el proveedor
+      description: |
+        Produce exactamente el mismo efecto de dominio que el webhook, pero
+        sin red externa ni credenciales. Es el canal que conduce el test E2E
+        y el que permite demostrar el producto con el proveedor caído.
+
+        Exige sesión con rol y además puede apagarse con
+        `SIMULATOR_ENABLED`. Los mensajes salientes de una conversación
+        simulada nunca salen a la red.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SimulatedMessageRequest'
+            example:
+              phoneE164: '+41791234567'
+              profileName: Anna Muster
+              text: Para el sábado quiero 2 kg de entrecot y 6 salchichas
+      responses:
+        '200':
+          description: |
+            Mensaje ingerido. La forma depende del resultado:
+
+            - **borrador creado**: `messageId` y `order`;
+            - **respuesta automática** (saludo, consulta, «lo de siempre» sin
+              historial): `messageId`, `intent`, `reply` y `order: null`;
+            - **límite por remitente**: `messageId`, `rateLimited: true`,
+              `reply` (null si ya se avisó en la ventana) y `order: null`;
+            - **sumado a un borrador abierto**: `messageId`,
+              `appendedToOrderId` y `order: null`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimulatedIngestResult'
+        '400':
+          description: Cuerpo que no es JSON, o número, nombre o texto no conformes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          description: |
+            Canal deshabilitado por `SIMULATOR_ENABLED`. **Se responde 404 y
+            no 403, antes incluso de mirar la sesión**: la existencia misma del
+            canal es lo que no debe revelarse.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: NOT_FOUND
+                message: No encontrado
+
+  /api/orders/{orderId}/confirm:
+    post:
+      tags: [Pedidos]
+      operationId: confirmOrder
+      summary: Confirma un pedido y descuenta las existencias
+      description: |
+        Cambia el estado a `CONFIRMED` y descuenta la cantidad de cada línea
+        con producto del `stockQuantity` de su producto, en una única
+        transacción, dejando un `StockMovement` por línea. La suficiencia de
+        existencias se comprueba al confirmar, con la fila del producto
+        bloqueada, no cuando se generó el borrador.
+
+        **Es idempotente:** confirmar dos veces devuelve 200 con el mismo
+        pedido y `alreadyConfirmed: true`, sin descontar de nuevo, sin
+        alterar `confirmedAt` y sin enviar un segundo resumen.
+
+        **Sin cuerpo de petición.** El resumen al cliente se envía después
+        de que la transacción confirme: un fallo de envío no revierte la
+        venta y queda como `summaryMessage.status: FAILED`.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Pedido confirmado, o ya confirmado antes (reintento sin efectos)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderConfirmed'
+        '400':
+          description: '`orderId` con formato inválido. No se consulta la base'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: VALIDATION_ERROR
+                message: Identificador de pedido no válido
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          description: El pedido no existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: ORDER_NOT_FOUND
+                message: Pedido no encontrado
+        '409':
+          description: |
+            Alguna línea supera las existencias actuales. La transacción
+            revierte entera: ni el estado ni las existencias cambian.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsufficientStock'
+        '422':
+          description: |
+            El borrador no tiene ninguna línea con producto (todas sin
+            reconocer o eliminadas). Sigue en `DRAFT` y no se envía nada al
+            cliente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: ORDER_HAS_NO_LINES
+                message: 'El pedido no tiene líneas con producto: no se puede confirmar'
+
+  /api/orders/pending-count:
+    get:
+      tags: [Pedidos]
+      operationId: countPendingOrders
+      summary: Número de pedidos en borrador, para el badge de la navegación
+      description: |
+        Lo consulta el navegador cada 10 s. `requireRole` se ejecuta antes de
+        cualquier consulta. Respuesta con `Cache-Control: no-store`.
+      responses:
+        '200':
+          description: Conteo vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PendingCount'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/orders/assembly-queue:
+    get:
+      tags: [Pedidos]
+      operationId: getAssemblyQueue
+      summary: Cola de armado de la pantalla del local
+      description: |
+        Pedidos confirmados desde la medianoche de hoy en Europe/Zurich, del
+        más antiguo al más reciente (máximo 100). Proyección cerrada en la
+        consulta: sin teléfono, conversación ni texto del cliente. El
+        navegador la refresca cada 20 s. Respuesta con
+        `Cache-Control: no-store`.
+      responses:
+        '200':
+          description: Cola vigente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssemblyQueue'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/health:
+    get:
+      tags: [Operación]
+      operationId: health
+      summary: Healthcheck de Railway
+      description: Indica que el proceso responde. No comprueba la base de datos.
+      security: []
+      responses:
+        '200':
+          description: El proceso responde
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: carnik_session
+      description: |
+        Cookie de sesión cifrada (iron-session), `httpOnly`, `sameSite=lax` y
+        `secure` en producción, con expiración absoluta de 8 h fijada al
+        iniciar sesión. Transporta el identificador de `User` y su rol. Se
+        obtiene en `/login` (server action). La comprobación se ejecuta dentro
+        de cada handler; no hay `middleware.ts`. Roles admitidos: `EMPLOYEE`
+        y `ADMIN`.
+    twilioSignature:
+      type: apiKey
+      in: header
+      name: X-Twilio-Signature
+      description: |
+        HMAC-SHA1, con `TWILIO_AUTH_TOKEN`, de `TWILIO_WEBHOOK_URL` más los
+        parámetros del formulario ordenados. Es el único mecanismo de
+        autorización del webhook, que no tiene sesión por necesidad.
+
+  parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      description: Identificador (`cuid`) del pedido. **Nunca se acepta `Order.reference`**
+      schema:
+        type: string
+        pattern: '^c[a-z0-9]{20,32}$'
+        example: cmg8k2m4p0001qz7h3f9a2b1c
+
+  responses:
+    Unauthenticated:
+      description: Sin sesión válida o con rol no admitido. Se responde antes de consultar la base
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: UNAUTHENTICATED
+            message: Sesión requerida
+
+  schemas:
+    OrderStatus:
+      type: string
+      enum: [DRAFT, CONFIRMED]
+    DraftOrigin:
+      type: string
+      enum: [AI, FALLBACK]
+      description: '`AI` si interpretó el LLM; `FALLBACK` si lo hizo el intérprete por reglas'
+    MessageStatus:
+      type: string
+      enum: [SENT, FAILED]
+    ProductUnit:
+      type: string
+      enum: [WEIGHT_KG, PIECE]
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [UNAUTHENTICATED, VALIDATION_ERROR, NOT_FOUND, ORDER_NOT_FOUND, ORDER_HAS_NO_LINES]
+        message:
+          type: string
+          description: Texto legible para registro y depuración
+
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            issues:
+              type: array
+              description: Problemas detectados por Zod, uno por campo
+              items:
+                type: object
+                required: [path, message]
+                properties:
+                  code:
+                    type: string
+                    example: invalid_format
+                  path:
+                    type: array
+                    items:
+                      oneOf:
+                        - type: string
+                        - type: integer
+                    example: [phoneE164]
+                  message:
+                    type: string
+                    example: Número en formato E.164, p. ej. +41791234567
+      example:
+        code: VALIDATION_ERROR
+        message: Datos no válidos
+        issues:
+          - code: invalid_format
+            path: [phoneE164]
+            message: Número en formato E.164, p. ej. +41791234567
+
+    InsufficientStock:
+      type: object
+      required: [code, message, lines]
+      properties:
+        code:
+          type: string
+          enum: [INSUFFICIENT_STOCK]
+        message:
+          type: string
+        lines:
+          type: array
+          description: Líneas cuya cantidad supera las existencias actuales
+          items:
+            type: object
+            required: [orderItemId, productName, requested, available]
+            properties:
+              orderItemId:
+                type: string
+              productName:
+                type: string
+              requested:
+                type: string
+                description: Decimal con tres decimales, como cadena para no perder precisión
+                example: '2.000'
+              available:
+                type: string
+                example: '0.800'
+
+    ProductRef:
+      type: object
+      description: Proyección mínima de Product. No expone stockQuantity
+      required: [id, slug, name, unit]
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+          example: entrecot
+        name:
+          type: string
+          example: Entrecot
+        unit:
+          $ref: '#/components/schemas/ProductUnit'
+
+    OrderItemView:
+      type: object
+      required: [id, product, rawText, quantity, unitPriceCents, lineTotalCents, hasStockWarning, availableQuantity]
+      properties:
+        id:
+          type: string
+        product:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/ProductRef'
+          nullable: true
+          description: null si la mención no se resolvió contra el catálogo
+        rawText:
+          type: string
+          description: Fragmento original del mensaje para esta línea
+          example: 2 kg de entrecot
+        quantity:
+          type: string
+          description: Decimal(10,3) serializado como cadena
+          example: '2.000'
+        unitPriceCents:
+          type: integer
+          description: 0 si la línea no tiene producto
+        lineTotalCents:
+          type: integer
+        hasStockWarning:
+          type: boolean
+        availableQuantity:
+          type: string
+          nullable: true
+          description: Existencias del producto; sólo si hasStockWarning es true
+          example: '1.500'
+
+    OrderDraftView:
+      type: object
+      description: Borrador recién generado. Sin datos del Customer ni de la Conversation
+      required: [id, reference, status, draftedBy, totalCents, currency, items]
+      properties:
+        id:
+          type: string
+        reference:
+          type: string
+          description: Seis últimos caracteres del id, en mayúsculas
+          example: K2M4P0
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        draftedBy:
+          $ref: '#/components/schemas/DraftOrigin'
+        totalCents:
+          type: integer
+        currency:
+          type: string
+          enum: [CHF]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItemView'
+
+    SimulatedMessageRequest:
+      type: object
+      required: [phoneE164, text]
+      properties:
+        phoneE164:
+          type: string
+          pattern: '^\+[1-9]\d{6,14}$'
+          description: Número del cliente simulado, en formato E.164
+          example: '+41791234567'
+        profileName:
+          type: string
+          maxLength: 100
+          description: Nombre de perfil de WhatsApp simulado
+          example: Anna Muster
+        text:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          description: Cuerpo del mensaje (se recortan espacios)
+
+    SimulatedIngestResult:
+      type: object
+      required: [order]
+      properties:
+        messageId:
+          type: string
+          description: Identificador del Message entrante registrado
+        order:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/OrderDraftView'
+          nullable: true
+          description: Sólo si el mensaje abrió un borrador (pedido o «lo de siempre»)
+        intent:
+          type: string
+          enum: [GREETING, QUESTION, REPEAT_LAST]
+          description: Intención del mensaje cuando recibió una respuesta automática
+        reply:
+          type: string
+          nullable: true
+          description: Respuesta automática enviada
+        appendedToOrderId:
+          type: string
+          description: Borrador abierto al que se sumó el mensaje, sin interpretarlo
+        rateLimited:
+          type: boolean
+          description: El remitente superó el límite; el mensaje quedó registrado sin invocar a la AI
+        duplicate:
+          type: boolean
+          description: Presente sólo en los caminos sin messageId (reintento o adjunto)
+
+    OrderConfirmed:
+      type: object
+      required: [id, reference, status, totalCents, confirmedAt, confirmedByUserId, alreadyConfirmed, summaryMessage]
+      properties:
+        id:
+          type: string
+        reference:
+          type: string
+        status:
+          type: string
+          enum: [CONFIRMED]
+        totalCents:
+          type: integer
+        confirmedAt:
+          type: string
+          format: date-time
+        confirmedByUserId:
+          type: string
+          description: Quien confirmó primero; en un reintento puede ser otro usuario
+        alreadyConfirmed:
+          type: boolean
+          description: true si la petición fue un reintento y no tuvo efectos
+        summaryMessage:
+          type: object
+          nullable: true
+          description: Resultado del envío del resumen al cliente; null si alreadyConfirmed
+          required: [status, messageId]
+          properties:
+            status:
+              $ref: '#/components/schemas/MessageStatus'
+            messageId:
+              type: string
+
+    TwilioInboundForm:
+      type: object
+      required: [MessageSid, From]
+      description: Sólo los campos que se usan; Twilio envía más y se ignoran
+      properties:
+        MessageSid:
+          type: string
+          pattern: '^[A-Z]{2}[0-9a-f]{32}$'
+          description: Se almacena en providerMessageId y nunca se devuelve
+        From:
+          type: string
+          example: 'whatsapp:+41791234567'
+          description: Se le quita el prefijo `whatsapp:` y se valida como E.164
+        Body:
+          type: string
+          maxLength: 4096
+          default: ''
+        ProfileName:
+          type: string
+          maxLength: 100
+        NumMedia:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Mayor que cero, el mensaje se registra sin su contenido
+
+    PendingCount:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+
+    AssemblyQueue:
+      type: object
+      required: [orders, generatedAt]
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        orders:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [id, reference, customerName, confirmedAt, confirmedTime, lines]
+            properties:
+              id:
+                type: string
+              reference:
+                type: string
+              customerName:
+                type: string
+                description: Nombre de pila del perfil (máx. 24 caracteres), o «Cliente»
+                example: Anna
+              confirmedAt:
+                type: string
+                format: date-time
+              confirmedTime:
+                type: string
+                description: Hora de confirmación HH:MM en Europe/Zurich
+                example: '09:42'
+              lines:
+                type: array
+                description: Sólo las líneas con producto
+                items:
+                  type: object
+                  required: [id, productName, quantityLabel]
+                  properties:
+                    id:
+                      type: string
+                    productName:
+                      type: string
+                      example: Entrecot
+                    quantityLabel:
+                      type: string
+                      example: 1.5 kg

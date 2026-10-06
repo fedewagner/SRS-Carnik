@@ -34,7 +34,7 @@ Sólo SHALL responderse automáticamente sobre productos activos del catálogo. 
 - **THEN** la respuesta indica su precio y que hoy no queda
 - **AND** no menciona ninguna cantidad de existencias
 
-#### Scenario: Consulta sobre un producto desconocido o inactivo (error)
+#### Scenario: Consulta sobre un producto desconocido (error)
 
 - **GIVEN** el cliente pregunta por un producto que no está en el catálogo o que está inactivo
 - **WHEN** el sistema procesa el mensaje
@@ -55,9 +55,9 @@ Sólo SHALL responderse automáticamente sobre productos activos del catálogo. 
 - **THEN** la respuesta contiene el precio vigente de la base
 - **AND** no contiene ningún texto tomado del mensaje ni redactado por la AI
 
-#### Scenario: La consulta no es de precio ni disponibilidad (borde)
+#### Scenario: La clasificación no es concluyente (borde)
 
-- **GIVEN** un mensaje como "¿abren el sábado?" que no nombra ningún producto del catálogo
+- **GIVEN** un mensaje cuya intención no es un pedido ni nombra ningún producto del catálogo, como "¿abren el sábado?"
 - **WHEN** se procesa
 - **THEN** el sistema envía el aviso neutro de atención humana
 - **AND** el mensaje queda en la `Conversation` para atención humana
