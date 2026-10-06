@@ -1165,6 +1165,7 @@ Libro de existencias (`US-15`). Un asiento por cada variación de `Product.stock
 **1 · `stockQuantity` es un campo de `Product`, no una entidad `StockItem`**
 Sería una relación 1-a-1 estricta sin atributos propios. Separarla añadiría una tabla, un `join` en cada consulta de propuesta y una fila más en el seed.
 *Trade-off:* se pierde el historial de movimientos de existencias, que una tabla aparte daría gratis. No lo pide ninguna historia, y `Order.confirmedAt` más `Order.confirmedByUserId` cubren la trazabilidad que sí importa.
+*Revisión posterior:* `US-15` sí lo pidió. El historial se añadió como libro de movimientos (`StockMovement`, migración `add_stock_movement`), y `stockQuantity` sigue en `Product` como saldo vigente.
 
 **2 · Dinero en `Int` de céntimos, cantidades en `Decimal(10,3)`**
 Ningún importe es coma flotante. Las cantidades usan decimal exacto con tres posiciones, suficiente para gramos.

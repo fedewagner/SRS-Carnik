@@ -6,7 +6,7 @@ import type { CatalogActionState } from "@/app/(staff)/admin/products/messages";
 
 type Props = { productId: string; unitLabel: string; stock: string; committed: string };
 
-const show = (n: number, unit: string) => `${n.toLocaleString("es-CH", { maximumFractionDigits: 3 })} ${unit}`;
+const show = (n: number, unit: string) => `${Number(n.toFixed(3))} ${unit}`;
 
 /**
  * Reajuste por conteo físico. Muestra lo comprometido hoy y anticipa el disponible
