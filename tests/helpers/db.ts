@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 
 export async function resetDatabase() {
   await db.$executeRawUnsafe(
-    'TRUNCATE "OrderItem", "Order", "Message", "Conversation", "Customer", "Product", "User" CASCADE',
+    'TRUNCATE "StockMovement", "OrderItem", "Order", "Message", "Conversation", "Customer", "Product", "User" CASCADE',
   );
 }
 
