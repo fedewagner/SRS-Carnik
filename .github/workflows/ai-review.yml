@@ -1,0 +1,51 @@
+name: Revisión con IA
+
+# Revisor de solo lectura: compara el diff con openspec/specs/ según REVIEW.md y comenta el PR.
+# No bloquea el merge. Sin el secreto ANTHROPIC_API_KEY el job se salta.
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+concurrency:
+  group: ai-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+
+    steps:
+      - name: Comprobar el secreto
+        id: key
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: echo "present=$([ -n "$KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        if: steps.key.outputs.present == 'true'
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Actúa como el subagente definido en .claude/agents/spec-reviewer.md.
+            Lee REVIEW.md y CLAUDE.md, obtén el diff con `gh pr diff`, y compáralo
+            con las specs de openspec/specs/ que toque.
+            Publica un único comentario con `gh pr comment`, en español y con el
+            formato de REVIEW.md. No edites ficheros.
+          claude_args: |
+            --model claude-sonnet-5-5
+            --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*),Bash(git diff:*),Bash(git log:*)"

@@ -8,8 +8,10 @@ node_modules/
 .next/
 dist/
 
-# agentes (config local, puede contener credenciales)
-.claude/
+# agentes: se versionan skills, comandos, subagentes y hooks; lo local no
+.claude/settings.local.json
+.claude/worktrees/
+# copias de las skills de .claude/ para otras herramientas: se regeneran con openspec init
 .codex/
 .cursor/
 
