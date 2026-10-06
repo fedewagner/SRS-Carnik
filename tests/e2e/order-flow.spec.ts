@@ -9,12 +9,15 @@ const stockOf = async (slug: string) =>
 
 /**
  * Flujo E2E principal: mensaje del cliente → borrador valorado → revisión en el backoffice
- * → ajuste de una cantidad → confirmación → existencias descontadas y resumen registrado en la conversación.
+ * → ajuste de una cantidad → confirmación → existencias descontadas y resumen registrado en la conversación
+ * → mensaje manual al cliente atribuido al empleado.
  */
 test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ page }) => {
   const phone = `+4179${Date.now().toString().slice(-7)}`;
   const entrecotBefore = await stockOf("entrecot");
   const salchichasBefore = await stockOf("salchicha-lyoner");
+  const badge = page.getByTestId("pending-badge");
+  let pendingBefore = 0;
 
   await test.step("el empleado entra al backoffice", async () => {
     await page.goto("/");
@@ -23,6 +26,8 @@ test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ pag
     await page.getByLabel("Contraseña").fill(process.env.SEED_PASSWORD ?? "carnik-test");
     await page.getByRole("button", { name: "Entrar" }).click();
     await expect(page).toHaveURL(/\/admin\/orders/);
+    await expect(badge).toHaveText(/^\d+ por confirmar$/);
+    pendingBefore = parseInt((await badge.textContent())!, 10);
   });
 
   await test.step("el cliente escribe su pedido (simulador)", async () => {
@@ -34,6 +39,11 @@ test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ pag
     await expect(draft).toContainText("Entrecot");
     await expect(draft).toContainText("Salchicha Lyoner");
     await expect(draft).toContainText("Total: CHF 89.40");
+  });
+
+  await test.step("el aviso de pendientes sube solo, sin recargar (US-07)", async () => {
+    // El polling es cada 10 s: margen para un ciclo completo más la petición.
+    await expect(badge).toHaveText(`${pendingBefore + 1} por confirmar`, { timeout: 15_000 });
   });
 
   await test.step("el empleado revisa el borrador junto a la conversación", async () => {
@@ -69,6 +79,17 @@ test("un mensaje de WhatsApp se convierte en un pedido confirmado", async ({ pag
     await expect(outbound.last()).toContainText("está confirmado");
     expect(await stockOf("entrecot")).toBeCloseTo(entrecotBefore - 1.5, 3);
     expect(await stockOf("salchicha-lyoner")).toBe(salchichasBefore - 6);
+  });
+
+  await test.step("escribe al cliente desde el pedido confirmado (US-12)", async () => {
+    await page.getByLabel("Escribir al cliente").fill("¡Gracias! Te esperamos el sábado.");
+    await page.getByRole("button", { name: "Enviar al cliente" }).click();
+    const outbound = page.getByTestId("message-outbound");
+    await expect(outbound).toHaveCount(3);
+    await expect(outbound.last()).toContainText("¡Gracias! Te esperamos el sábado.");
+    await expect(outbound.last().getByTestId("message-author")).toContainText("por empleado@carnik.test");
+    await expect(page.getByLabel("Escribir al cliente")).toHaveValue("");
+    await expect(page.getByText(/Confirmado el/)).toBeVisible();
   });
 
   await test.step("el pedido aparece en la cola de armado, sin el teléfono (US-13)", async () => {

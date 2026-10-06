@@ -45,6 +45,11 @@ export function listAssemblyQueue(confirmedSince: Date) {
   });
 }
 
+/** Pedidos que esperan confirmación; lo consulta el badge de la navegación cada 10 s (D13). */
+export function countPendingOrders() {
+  return db.order.count({ where: { status: "DRAFT" } });
+}
+
 export function getOrderDetail(id: string) {
   return db.order.findUnique({
     where: { id },
@@ -52,7 +57,9 @@ export function getOrderDetail(id: string) {
       customer: true,
       confirmedBy: { select: { email: true } },
       items: { include: { product: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] },
-      conversation: { include: { messages: { orderBy: { createdAt: "asc" } } } },
+      conversation: {
+        include: { messages: { orderBy: { createdAt: "asc" }, include: { sentBy: { select: { email: true } } } } },
+      },
     },
   });
 }

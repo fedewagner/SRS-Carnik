@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AddLineForm } from "@/components/AddLineForm";
 import { ConfirmOrderButton } from "@/components/ConfirmOrderButton";
+import { ManualMessageForm } from "@/components/ManualMessageForm";
 import { OrderLineRow } from "@/components/OrderLineRow";
 import { StatusBadge } from "@/components/StatusBadge";
 import { formatChf } from "@/core/orders/pricing";
@@ -107,10 +108,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
               <div className="mt-1 text-[10px] text-stone-500">
                 {m.createdAt.toLocaleString("es-CH", { timeZone: "Europe/Zurich" })}
                 {m.direction === "OUTBOUND" && ` · ${m.status === "SENT" ? "enviado" : "falló"}`}
+                {m.sentBy && <span data-testid="message-author"> · por {m.sentBy.email}</span>}
               </div>
             </li>
           ))}
         </ol>
+        <ManualMessageForm orderId={order.id} />
       </aside>
     </section>
   );

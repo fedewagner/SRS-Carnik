@@ -1,8 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { sendManualMessage } from "@/core/messaging/manual";
 import { addLine, removeLine, resolveLine, updateLineQuantity, type EditResult } from "@/core/orders/editLines";
 import { requireRole, STAFF, UnauthorizedError } from "@/lib/auth/guard";
+import { ManualMessageSchema } from "@/lib/validation/messaging";
 import { AddLineSchema, RemoveLineSchema, ResolveLineSchema, UpdateLineSchema } from "@/lib/validation/orders";
 
 export type LineActionState = { error?: string };
@@ -53,4 +55,29 @@ export async function addLineAction(_prev: LineActionState, formData: FormData) 
 
 export async function resolveLineAction(_prev: LineActionState, formData: FormData) {
   return run(formData, ResolveLineSchema, (d) => resolveLine(d.orderId, d.itemId, d.productId, d.quantity));
+}
+
+export type MessageActionState = { error?: string; sent?: boolean };
+
+/**
+ * Mensaje manual al cliente (US-12). El autor sale de la sesión, nunca del formulario.
+ * Un envío FAILED no es un error de la acción: queda registrado y se avisa al empleado.
+ */
+export async function sendManualMessageAction(_prev: MessageActionState, formData: FormData): Promise<MessageActionState> {
+  let userId: string;
+  try {
+    ({ userId } = await requireRole(STAFF));
+  } catch (error) {
+    if (error instanceof UnauthorizedError) return { error: "Sesión caducada. Volvé a entrar." };
+    throw error;
+  }
+  const parsed = ManualMessageSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Datos no válidos" };
+
+  const result = await sendManualMessage(parsed.data.orderId, userId, parsed.data.body);
+  if (!result.ok) return { error: "El pedido ya no existe. Recargá la página." };
+  revalidatePath(`/admin/orders/${parsed.data.orderId}`);
+  return result.status === "SENT"
+    ? { sent: true }
+    : { error: "No se pudo entregar: quedó registrado en la conversación como no entregado." };
 }
