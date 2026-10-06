@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Contrato de salida del intérprete: sin precios, sin totales, sin disponibilidad (D9). */
+/** Contrato de salida del intérprete: sin precios, sin totales, sin disponibilidad (D9, A6). */
 export const DraftLineSchema = z.object({
   productSlug: z
     .string()
@@ -21,6 +21,12 @@ export const DraftSchema = z.object({
         "QUESTION si pregunta algo sin pedir; REPEAT_LAST si pide repetir su pedido habitual o el último",
     ),
   lines: z.array(DraftLineSchema),
+  askedProducts: z
+    .array(z.string())
+    .describe(
+      "Slugs del catálogo por cuyo precio o disponibilidad pregunta el cliente sin pedirlos; " +
+        "[] si no pregunta por ningún producto del catálogo",
+    ),
 });
 
 export type DraftLine = z.infer<typeof DraftLineSchema>;

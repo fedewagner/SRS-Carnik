@@ -10,6 +10,8 @@ export type CatalogEntry = {
 export type DraftResult = {
   intent: Intent;
   lines: DraftLine[];
+  /** Slugs del catálogo activo consultados por precio o disponibilidad (A1). */
+  askedProducts: string[];
   origin: "AI" | "FALLBACK";
 };
 

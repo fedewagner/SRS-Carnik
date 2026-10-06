@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { REPEAT_OFFER_PREFIX, ackReply, greetingReply, questionReply } from "@/core/messaging/replies";
+import {
+  REPEAT_OFFER_PREFIX,
+  ackReply,
+  catalogAnswerReply,
+  greetingReply,
+  questionReply,
+} from "@/core/messaging/replies";
 
 const last = [
   { quantity: 2, unit: "WEIGHT_KG" as const, productName: "Entrecot" },
@@ -34,5 +40,27 @@ describe("respuestas automáticas", () => {
 
   it("la consulta recibe un aviso neutro", () => {
     expect(questionReply()).toMatch(/persona del equipo/);
+  });
+
+  describe("respuesta de catálogo", () => {
+    const text = catalogAnswerReply([
+      { productName: "Entrecot", unit: "WEIGHT_KG", pricePerUnitCents: 3900, available: true },
+      { productName: "Salchicha Lyoner", unit: "PIECE", pricePerUnitCents: 190, available: false },
+    ]);
+
+    it("da el precio por unidad de venta de cada producto", () => {
+      expect(text).toContain("• Entrecot: CHF 39.00 por kg, hay disponible.");
+      expect(text).toContain("• Salchicha Lyoner: CHF 1.90 por unidad, hoy no nos queda.");
+    });
+
+    it("no promete reserva y no da cantidades de stock", () => {
+      expect(text).toMatch(/no reserva/);
+      expect(text).not.toMatch(/total|\bquedan \d|\d+(\.\d+)? ?(kg|u\.) disponibles?/i);
+    });
+
+    it("invita a pedir con la cantidad y deja otras dudas a una persona", () => {
+      expect(text).toMatch(/escribinos la cantidad/);
+      expect(text).toMatch(/persona del equipo/);
+    });
   });
 });

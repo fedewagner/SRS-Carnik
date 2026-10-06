@@ -6,6 +6,7 @@ import type { Intent } from "@/core/drafting/schema";
 import type { DraftResult } from "@/core/drafting/types";
 import { createDraftOrder } from "@/core/orders/createDraft";
 import { findLastConfirmedOrder, repeatLines } from "@/core/orders/repeat";
+import { catalogAnswerFor } from "./catalog-answer";
 import { sendOutboundMessage } from "./outbound";
 import { enforceMessageLimit } from "./rateLimit";
 import {
@@ -83,7 +84,8 @@ export async function ingestInboundMessage(msg: InboundMessage): Promise<IngestR
     const last = await findLastConfirmedOrder(customer.id);
     return reply(greetingReply(customer.profileName, last?.lines ?? null), "GREETING");
   }
-  return reply(questionReply(), "QUESTION");
+  // Consulta de precio o disponibilidad de productos del catálogo; si no, una persona (A5).
+  return reply((await catalogAnswerFor(draft.askedProducts)) ?? questionReply(), "QUESTION");
 }
 
 /**
